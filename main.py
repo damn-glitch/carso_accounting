@@ -7,6 +7,7 @@ import json
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from sqlalchemy import text  # ВАЖНО: Добавляем импорт text
 
 # Настройка страницы
 st.set_page_config(page_title="Учетная система автосалона", layout="wide")
@@ -170,15 +171,16 @@ def init_database():
         
         # Создание таблиц
         with engine.connect() as connection:
-            connection.execute('''
+            # ВАЖНО: Используем text() для SQL запросов
+            connection.execute(text('''
                 CREATE TABLE IF NOT EXISTS dealerships (
                     id SERIAL PRIMARY KEY,
                     name VARCHAR(255) UNIQUE NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            '''))
             
-            connection.execute('''
+            connection.execute(text('''
                 CREATE TABLE IF NOT EXISTS cars (
                     id SERIAL PRIMARY KEY,
                     dealership_id INTEGER REFERENCES dealerships(id),
@@ -193,7 +195,7 @@ def init_database():
                     updated_by VARCHAR(100),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            '''))
             
             connection.commit()
         
@@ -209,8 +211,8 @@ def init_database():
             for dealership in DEFAULT_DEALERSHIPS:
                 if dealership not in existing_names:
                     connection.execute(
-                        "INSERT INTO dealerships (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
-                        (dealership,)
+                        text("INSERT INTO dealerships (name) VALUES (:name) ON CONFLICT (name) DO NOTHING"),
+                        {"name": dealership}
                     )
             connection.commit()
         
@@ -313,31 +315,6 @@ def get_car_payment_status_for_today(conn, car_id):
     # Проверяем, что оплата была сегодня
     payment_date = pd.to_datetime(row.payment_date).date()
     return payment_date == date.today()
-# Функции для очистки данных (только для руководителя)
-def clear_all_data_with_restore(conn):
-    """Очистка всех данных с восстановлением автосалонов"""
-    engine = conn._instance
-    with engine.connect() as connection:
-        connection.execute(text('DELETE FROM cars'))
-        connection.execute(text('DELETE FROM dealerships'))
-
-        # Восстанавливаем базовые автосалоны
-        for dealership in DEFAULT_DEALERSHIPS:
-            connection.execute(
-                text("INSERT INTO dealerships (name) VALUES (:name)"),
-                {"name": dealership}
-            )
-        connection.commit()
-
-
-def destroy_database_completely(conn):
-    """Полная очистка базы данных без восстановления"""
-    engine = conn._instance
-    with engine.connect() as connection:
-        connection.execute(text('DELETE FROM cars'))
-        connection.execute(text('DELETE FROM dealerships'))
-        connection.commit()
-
 
 def get_cars_by_month_dealership(conn, year, month, dealership_id=None):
     """Получение машин за месяц по автосалонам"""
@@ -1250,14 +1227,14 @@ if is_leader(current_user):
         if st.button("Подтвердить очистку всех данных", type="primary"):
             engine = conn._instance
             with engine.connect() as connection:
-                connection.execute('DELETE FROM cars')
-                connection.execute('DELETE FROM dealerships')
+                connection.execute(text('DELETE FROM cars'))
+                connection.execute(text('DELETE FROM dealerships'))
 
                 # Восстанавливаем базовые автосалоны
                 for dealership in DEFAULT_DEALERSHIPS:
                     connection.execute(
-                        "INSERT INTO dealerships (name) VALUES (%s)",
-                        (dealership,)
+                        text("INSERT INTO dealerships (name) VALUES (:name)"),
+                        {"name": dealership}
                     )
                 connection.commit()
 
@@ -1286,8 +1263,8 @@ if is_leader(current_user):
             if st.button("🔥 ПОДТВЕРДИТЬ ПОЛНОЕ УНИЧТОЖЕНИЕ", type="primary"):
                 engine = conn._instance
                 with engine.connect() as connection:
-                    connection.execute('DELETE FROM cars')
-                    connection.execute('DELETE FROM dealerships')
+                    connection.execute(text('DELETE FROM cars'))
+                    connection.execute(text('DELETE FROM dealerships'))
                     connection.commit()
 
                 st.success("💀 База данных полностью очищена!")
