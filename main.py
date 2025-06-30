@@ -166,15 +166,15 @@ def init_database():
         conn = st.connection("postgresql", type="sql")
         
         # Создание таблиц
-        conn.execute('''
+        conn.query('''
             CREATE TABLE IF NOT EXISTS dealerships (
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(255) UNIQUE NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
+        ''', ttl=0)
         
-        conn.execute('''
+        conn.query('''
             CREATE TABLE IF NOT EXISTS cars (
                 id SERIAL PRIMARY KEY,
                 dealership_id INTEGER REFERENCES dealerships(id),
@@ -189,16 +189,21 @@ def init_database():
                 updated_by VARCHAR(100),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
+        ''', ttl=0)
         
         # Добавляем базовые автосалоны если их нет
-        existing_dealerships = conn.query("SELECT name FROM dealerships").values.flatten()
+        try:
+            existing_dealerships = conn.query("SELECT name FROM dealerships", ttl=0)
+            existing_names = existing_dealerships['name'].tolist() if not existing_dealerships.empty else []
+        except:
+            existing_names = []
         
         for dealership in DEFAULT_DEALERSHIPS:
-            if dealership not in existing_dealerships:
-                conn.execute(
+            if dealership not in existing_names:
+                conn.query(
                     "INSERT INTO dealerships (name) VALUES (:name) ON CONFLICT (name) DO NOTHING",
-                    params={"name": dealership}
+                    params={"name": dealership},
+                    ttl=0
                 )
         
         return conn
@@ -211,15 +216,16 @@ def init_database():
 # Функции для работы с БД
 def get_dealerships(conn):
     """Получение списка автосалонов"""
-    result = conn.query("SELECT id, name FROM dealerships ORDER BY name")
+    result = conn.query("SELECT id, name FROM dealerships ORDER BY name", ttl=0)
     return [(row.id, row.name) for _, row in result.iterrows()]
 
 def add_dealership(conn, name):
     """Добавление нового автосалона"""
     try:
-        conn.execute(
+        conn.query(
             "INSERT INTO dealerships (name) VALUES (:name)",
-            params={"name": name}
+            params={"name": name},
+            ttl=0
         )
         return True
     except Exception:
@@ -239,7 +245,7 @@ def add_car_entry(conn, dealership_id, car_type, count, date_added, is_paid=Fals
     payment_date = date.today() if is_paid else None
     updated_by = current_user if is_paid else None
     
-    conn.execute('''
+    conn.query('''
         INSERT INTO cars (dealership_id, car_type, count, price_per_car, total_amount, 
                          date_added, is_paid, payment_date, created_by, updated_by)
         VALUES (:dealership_id, :car_type, :count, :price_per_car, :total_amount, 
@@ -255,14 +261,14 @@ def add_car_entry(conn, dealership_id, car_type, count, date_added, is_paid=Fals
         "payment_date": payment_date,
         "created_by": current_user,
         "updated_by": updated_by
-    })
+    }, ttl=0)
 
 def update_car_payment_status(conn, car_id, is_paid):
     """Обновление статуса оплаты"""
     current_user = st.session_state.get('current_user', 'unknown')
     payment_date = date.today() if is_paid else None
     
-    conn.execute('''
+    conn.query('''
         UPDATE cars 
         SET is_paid = :is_paid, payment_date = :payment_date, updated_by = :updated_by
         WHERE id = :car_id
@@ -271,7 +277,7 @@ def update_car_payment_status(conn, car_id, is_paid):
         "payment_date": payment_date,
         "updated_by": current_user,
         "car_id": car_id
-    })
+    }, ttl=0)
 
 def get_car_payment_status_for_today(conn, car_id):
     """Проверяет статус оплаты машины на сегодня"""
@@ -279,7 +285,7 @@ def get_car_payment_status_for_today(conn, car_id):
         SELECT is_paid, payment_date
         FROM cars
         WHERE id = :car_id
-    ''', params={"car_id": car_id})
+    ''', params={"car_id": car_id}, ttl=0)
     
     if result.empty:
         return False
@@ -309,7 +315,7 @@ def get_cars_by_month_dealership(conn, year, month, dealership_id=None):
     
     query += ' ORDER BY d.name, c.date_added'
     
-    result = conn.query(query, params=params)
+    result = conn.query(query, params=params, ttl=0)
     return [tuple(row) for _, row in result.iterrows()]
 
 def get_monthly_summary(conn, year, month):
@@ -327,7 +333,7 @@ def get_monthly_summary(conn, year, month):
         AND EXTRACT(month FROM c.date_added) = :month
         GROUP BY d.id, d.name, c.car_type
         ORDER BY d.name, c.car_type
-    ''', params={"year": year, "month": month})
+    ''', params={"year": year, "month": month}, ttl=0)
     
     return [tuple(row) for _, row in result.iterrows()]
 
@@ -348,7 +354,7 @@ def get_cars_by_day(conn, year, month, dealership_name, car_type):
         "month": month, 
         "dealership_name": dealership_name, 
         "car_type": car_type
-    })
+    }, ttl=0)
     
     result_dict = {}
     for _, row in result.iterrows():
@@ -572,7 +578,7 @@ with st.sidebar:
         st.header("📊 Административная панель")
 
         # Общая статистика системы
-        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars')
+        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars', ttl=0)
         
         if not total_stats_result.empty and not pd.isna(total_stats_result.iloc[0, 0]):
             total_cars = int(total_stats_result.iloc[0, 0])
@@ -585,7 +591,7 @@ with st.sidebar:
                 st.metric("Общий оборот", f"{total_amount:,} тг")
 
             # Статистика по оплатам
-            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE')
+            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE', ttl=0)
             paid_cars = int(paid_cars_result.iloc[0, 0]) if not paid_cars_result.empty and not pd.isna(paid_cars_result.iloc[0, 0]) else 0
 
             if total_cars > 0:
@@ -608,7 +614,7 @@ with st.sidebar:
             AND created_by != 'unknown'
             GROUP BY created_by
             ORDER BY SUM(count) DESC
-        ''')
+        ''', ttl=0)
 
         if not manager_stats_result.empty:
             for _, row in manager_stats_result.iterrows():
@@ -621,7 +627,8 @@ with st.sidebar:
                 # Статистика по обработанным оплатам
                 processed_result = conn.query(
                     'SELECT SUM(count) FROM cars WHERE updated_by = :manager AND is_paid = TRUE',
-                    params={"manager": manager}
+                    params={"manager": manager},
+                    ttl=0
                 )
                 processed_payments = int(processed_result.iloc[0, 0]) if not processed_result.empty and not pd.isna(processed_result.iloc[0, 0]) else 0
 
@@ -677,7 +684,8 @@ with st.sidebar:
 
         user_stats_result = conn.query(
             'SELECT SUM(count), SUM(total_amount) FROM cars WHERE created_by = :user',
-            params={"user": current_user}
+            params={"user": current_user},
+            ttl=0
         )
 
         if not user_stats_result.empty and not pd.isna(user_stats_result.iloc[0, 0]):
@@ -691,7 +699,8 @@ with st.sidebar:
         # Статистика по оплатам
         user_payments_result = conn.query(
             'SELECT SUM(count) FROM cars WHERE updated_by = :user AND is_paid = TRUE',
-            params={"user": current_user}
+            params={"user": current_user},
+            ttl=0
         )
         user_payments = int(user_payments_result.iloc[0, 0]) if not user_payments_result.empty and not pd.isna(user_payments_result.iloc[0, 0]) else 0
 
@@ -962,7 +971,7 @@ with col2:
         st.header("👑 Панель руководителя")
 
         # Расширенная аналитика для руководителя
-        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars')
+        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars', ttl=0)
 
         if not total_stats_result.empty and not pd.isna(total_stats_result.iloc[0, 0]):
             # Основные KPI
@@ -971,10 +980,10 @@ with col2:
             total_cars = int(total_stats_result.iloc[0, 0])
             total_revenue = int(total_stats_result.iloc[0, 1])
 
-            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE')
+            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE', ttl=0)
             paid_cars = int(paid_cars_result.iloc[0, 0]) if not paid_cars_result.empty and not pd.isna(paid_cars_result.iloc[0, 0]) else 0
 
-            paid_revenue_result = conn.query('SELECT SUM(total_amount) FROM cars WHERE is_paid = TRUE')
+            paid_revenue_result = conn.query('SELECT SUM(total_amount) FROM cars WHERE is_paid = TRUE', ttl=0)
             paid_revenue = int(paid_revenue_result.iloc[0, 0]) if not paid_revenue_result.empty and not pd.isna(paid_revenue_result.iloc[0, 0]) else 0
 
             col_kpi1, col_kpi2 = st.columns(2)
@@ -1004,7 +1013,7 @@ with col2:
                 WHERE date_added >= CURRENT_DATE - INTERVAL '30 days'
                 GROUP BY date_added
                 ORDER BY date_added
-            ''')
+            ''', ttl=0)
 
             if not daily_data_result.empty:
                 dates = daily_data_result['date_added'].tolist()
@@ -1035,7 +1044,7 @@ with col2:
                 FROM cars
                 GROUP BY car_type
                 ORDER BY SUM(count) DESC
-            ''')
+            ''', ttl=0)
 
             if not car_types_result.empty:
                 # Создаем данные для графика
@@ -1071,7 +1080,7 @@ with col2:
         # Упрощенная панель для менеджеров
         st.header("📊 Общая статистика")
 
-        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars')
+        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars', ttl=0)
 
         if not total_stats_result.empty and not pd.isna(total_stats_result.iloc[0, 0]):
             total_cars = int(total_stats_result.iloc[0, 0])
@@ -1080,10 +1089,10 @@ with col2:
             st.metric("Общая сумма", f"{total_amount:,} тг")
 
             # Статистика по оплатам
-            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE')
+            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE', ttl=0)
             paid_cars = int(paid_cars_result.iloc[0, 0]) if not paid_cars_result.empty and not pd.isna(paid_cars_result.iloc[0, 0]) else 0
 
-            paid_amount_result = conn.query('SELECT SUM(total_amount) FROM cars WHERE is_paid = TRUE')
+            paid_amount_result = conn.query('SELECT SUM(total_amount) FROM cars WHERE is_paid = TRUE', ttl=0)
             paid_amount = int(paid_amount_result.iloc[0, 0]) if not paid_amount_result.empty and not pd.isna(paid_amount_result.iloc[0, 0]) else 0
 
             st.divider()
@@ -1198,14 +1207,15 @@ if is_leader(current_user):
     # Обычная очистка данных
     if st.button("🗑️ Очистить все данные", type="secondary", help="Очистка с восстановлением автосалонов"):
         if st.button("Подтвердить очистку всех данных", type="primary"):
-            conn.execute('DELETE FROM cars')
-            conn.execute('DELETE FROM dealerships')
+            conn.query('DELETE FROM cars', ttl=0)
+            conn.query('DELETE FROM dealerships', ttl=0)
 
             # Восстанавливаем базовые автосалоны
             for dealership in DEFAULT_DEALERSHIPS:
-                conn.execute(
+                conn.query(
                     "INSERT INTO dealerships (name) VALUES (:name)",
-                    params={"name": dealership}
+                    params={"name": dealership},
+                    ttl=0
                 )
 
             st.success("Все данные очищены!")
@@ -1231,8 +1241,8 @@ if is_leader(current_user):
     if st.button("💥 ПОЛНАЯ ОЧИСТКА БАЗЫ ДАННЫХ", type="primary", help="ВНИМАНИЕ: Полная очистка без восстановления!"):
         if destroy_password == "alisher_destroy":
             if st.button("🔥 ПОДТВЕРДИТЬ ПОЛНОЕ УНИЧТОЖЕНИЕ", type="primary"):
-                conn.execute('DELETE FROM cars')
-                conn.execute('DELETE FROM dealerships')
+                conn.query('DELETE FROM cars', ttl=0)
+                conn.query('DELETE FROM dealerships', ttl=0)
 
                 st.success("💀 База данных полностью очищена!")
                 st.warning("⚠️ Все автосалоны удалены! Потребуется ручное восстановление.")
