@@ -165,18 +165,20 @@ def init_database():
         # Создаем подключение к PostgreSQL
         conn = st.connection("postgresql", type="sql")
         
-        # Для DDL операций используем session
-        with conn.session as session:
-            # Создание таблиц
-            session.execute(text('''
+        # Для DDL операций используем прямое подключение к движку
+        engine = conn._instance
+        
+        # Создание таблиц
+        with engine.connect() as connection:
+            connection.execute('''
                 CREATE TABLE IF NOT EXISTS dealerships (
                     id SERIAL PRIMARY KEY,
                     name VARCHAR(255) UNIQUE NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            '''))
+            ''')
             
-            session.execute(text('''
+            connection.execute('''
                 CREATE TABLE IF NOT EXISTS cars (
                     id SERIAL PRIMARY KEY,
                     dealership_id INTEGER REFERENCES dealerships(id),
@@ -191,9 +193,9 @@ def init_database():
                     updated_by VARCHAR(100),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            '''))
+            ''')
             
-            session.commit()
+            connection.commit()
         
         # Добавляем базовые автосалоны если их нет
         try:
@@ -203,14 +205,14 @@ def init_database():
             existing_names = []
         
         # Добавляем отсутствующие автосалоны
-        with conn.session as session:
+        with engine.connect() as connection:
             for dealership in DEFAULT_DEALERSHIPS:
                 if dealership not in existing_names:
-                    session.execute(
-                        text("INSERT INTO dealerships (name) VALUES (:name) ON CONFLICT (name) DO NOTHING"),
-                        {"name": dealership}
+                    connection.execute(
+                        "INSERT INTO dealerships (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
+                        (dealership,)
                     )
-            session.commit()
+            connection.commit()
         
         return conn
         
@@ -228,11 +230,13 @@ def get_dealerships(conn):
 def add_dealership(conn, name):
     """Добавление нового автосалона"""
     try:
-        conn.query(
-            "INSERT INTO dealerships (name) VALUES (:name)",
-            params={"name": name},
-            ttl=0
-        )
+        engine = conn._instance
+        with engine.connect() as connection:
+            connection.execute(
+                "INSERT INTO dealerships (name) VALUES (%s)",
+                (name,)
+            )
+            connection.commit()
         return True
     except Exception:
         return False
@@ -251,39 +255,31 @@ def add_car_entry(conn, dealership_id, car_type, count, date_added, is_paid=Fals
     payment_date = date.today() if is_paid else None
     updated_by = current_user if is_paid else None
     
-    conn.query('''
-        INSERT INTO cars (dealership_id, car_type, count, price_per_car, total_amount, 
-                         date_added, is_paid, payment_date, created_by, updated_by)
-        VALUES (:dealership_id, :car_type, :count, :price_per_car, :total_amount, 
-                :date_added, :is_paid, :payment_date, :created_by, :updated_by)
-    ''', params={
-        "dealership_id": dealership_id,
-        "car_type": car_type,
-        "count": count,
-        "price_per_car": price_per_car,
-        "total_amount": total_amount,
-        "date_added": date_added,
-        "is_paid": is_paid,
-        "payment_date": payment_date,
-        "created_by": current_user,
-        "updated_by": updated_by
-    }, ttl=0)
+    engine = conn._instance
+    with engine.connect() as connection:
+        connection.execute('''
+            INSERT INTO cars (dealership_id, car_type, count, price_per_car, total_amount, 
+                             date_added, is_paid, payment_date, created_by, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (
+            dealership_id, car_type, count, price_per_car, total_amount,
+            date_added, is_paid, payment_date, current_user, updated_by
+        ))
+        connection.commit()
 
 def update_car_payment_status(conn, car_id, is_paid):
     """Обновление статуса оплаты"""
     current_user = st.session_state.get('current_user', 'unknown')
     payment_date = date.today() if is_paid else None
     
-    conn.query('''
-        UPDATE cars 
-        SET is_paid = :is_paid, payment_date = :payment_date, updated_by = :updated_by
-        WHERE id = :car_id
-    ''', params={
-        "is_paid": is_paid,
-        "payment_date": payment_date,
-        "updated_by": current_user,
-        "car_id": car_id
-    }, ttl=0)
+    engine = conn._instance
+    with engine.connect() as connection:
+        connection.execute('''
+            UPDATE cars 
+            SET is_paid = %s, payment_date = %s, updated_by = %s
+            WHERE id = %s
+        ''', (is_paid, payment_date, current_user, car_id))
+        connection.commit()
 
 def get_car_payment_status_for_today(conn, car_id):
     """Проверяет статус оплаты машины на сегодня"""
@@ -1213,16 +1209,18 @@ if is_leader(current_user):
     # Обычная очистка данных
     if st.button("🗑️ Очистить все данные", type="secondary", help="Очистка с восстановлением автосалонов"):
         if st.button("Подтвердить очистку всех данных", type="primary"):
-            conn.query('DELETE FROM cars', ttl=0)
-            conn.query('DELETE FROM dealerships', ttl=0)
+            engine = conn._instance
+            with engine.connect() as connection:
+                connection.execute('DELETE FROM cars')
+                connection.execute('DELETE FROM dealerships')
 
-            # Восстанавливаем базовые автосалоны
-            for dealership in DEFAULT_DEALERSHIPS:
-                conn.query(
-                    "INSERT INTO dealerships (name) VALUES (:name)",
-                    params={"name": dealership},
-                    ttl=0
-                )
+                # Восстанавливаем базовые автосалоны
+                for dealership in DEFAULT_DEALERSHIPS:
+                    connection.execute(
+                        "INSERT INTO dealerships (name) VALUES (%s)",
+                        (dealership,)
+                    )
+                connection.commit()
 
             st.success("Все данные очищены!")
             st.rerun()
@@ -1247,8 +1245,11 @@ if is_leader(current_user):
     if st.button("💥 ПОЛНАЯ ОЧИСТКА БАЗЫ ДАННЫХ", type="primary", help="ВНИМАНИЕ: Полная очистка без восстановления!"):
         if destroy_password == "alisher_destroy":
             if st.button("🔥 ПОДТВЕРДИТЬ ПОЛНОЕ УНИЧТОЖЕНИЕ", type="primary"):
-                conn.query('DELETE FROM cars', ttl=0)
-                conn.query('DELETE FROM dealerships', ttl=0)
+                engine = conn._instance
+                with engine.connect() as connection:
+                    connection.execute('DELETE FROM cars')
+                    connection.execute('DELETE FROM dealerships')
+                    connection.commit()
 
                 st.success("💀 База данных полностью очищена!")
                 st.warning("⚠️ Все автосалоны удалены! Потребуется ручное восстановление.")
