@@ -165,31 +165,35 @@ def init_database():
         # Создаем подключение к PostgreSQL
         conn = st.connection("postgresql", type="sql")
         
-        # Создание таблиц
-        conn.query('''
-            CREATE TABLE IF NOT EXISTS dealerships (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(255) UNIQUE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''', ttl=0)
-        
-        conn.query('''
-            CREATE TABLE IF NOT EXISTS cars (
-                id SERIAL PRIMARY KEY,
-                dealership_id INTEGER REFERENCES dealerships(id),
-                car_type VARCHAR(100) NOT NULL,
-                count INTEGER NOT NULL,
-                price_per_car INTEGER NOT NULL,
-                total_amount INTEGER NOT NULL,
-                date_added DATE NOT NULL,
-                is_paid BOOLEAN DEFAULT FALSE,
-                payment_date DATE,
-                created_by VARCHAR(100),
-                updated_by VARCHAR(100),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''', ttl=0)
+        # Для DDL операций используем session
+        with conn.session as session:
+            # Создание таблиц
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS dealerships (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            '''))
+            
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS cars (
+                    id SERIAL PRIMARY KEY,
+                    dealership_id INTEGER REFERENCES dealerships(id),
+                    car_type VARCHAR(100) NOT NULL,
+                    count INTEGER NOT NULL,
+                    price_per_car INTEGER NOT NULL,
+                    total_amount INTEGER NOT NULL,
+                    date_added DATE NOT NULL,
+                    is_paid BOOLEAN DEFAULT FALSE,
+                    payment_date DATE,
+                    created_by VARCHAR(100),
+                    updated_by VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            '''))
+            
+            session.commit()
         
         # Добавляем базовые автосалоны если их нет
         try:
@@ -198,13 +202,15 @@ def init_database():
         except:
             existing_names = []
         
-        for dealership in DEFAULT_DEALERSHIPS:
-            if dealership not in existing_names:
-                conn.query(
-                    "INSERT INTO dealerships (name) VALUES (:name) ON CONFLICT (name) DO NOTHING",
-                    params={"name": dealership},
-                    ttl=0
-                )
+        # Добавляем отсутствующие автосалоны
+        with conn.session as session:
+            for dealership in DEFAULT_DEALERSHIPS:
+                if dealership not in existing_names:
+                    session.execute(
+                        text("INSERT INTO dealerships (name) VALUES (:name) ON CONFLICT (name) DO NOTHING"),
+                        {"name": dealership}
+                    )
+            session.commit()
         
         return conn
         
@@ -1109,7 +1115,7 @@ with col2:
                 SELECT SUM(count), SUM(total_amount)
                 FROM cars
                 WHERE payment_date = :today AND is_paid = TRUE
-            ''', params={"today": today_str})
+            ''', params={"today": today_str}, ttl=0)
             
             today_paid_cars = int(today_paid_result.iloc[0, 0]) if not today_paid_result.empty and not pd.isna(today_paid_result.iloc[0, 0]) else 0
             today_paid_amount = int(today_paid_result.iloc[0, 1]) if not today_paid_result.empty and not pd.isna(today_paid_result.iloc[0, 1]) else 0
@@ -1119,7 +1125,7 @@ with col2:
                 SELECT SUM(count), SUM(total_amount)
                 FROM cars
                 WHERE date_added = :today AND is_paid = FALSE
-            ''', params={"today": today_str})
+            ''', params={"today": today_str}, ttl=0)
             
             today_unpaid_cars = int(today_unpaid_result.iloc[0, 0]) if not today_unpaid_result.empty and not pd.isna(today_unpaid_result.iloc[0, 0]) else 0
             today_unpaid_amount = int(today_unpaid_result.iloc[0, 1]) if not today_unpaid_result.empty and not pd.isna(today_unpaid_result.iloc[0, 1]) else 0
