@@ -233,8 +233,8 @@ def add_dealership(conn, name):
         engine = conn._instance
         with engine.connect() as connection:
             connection.execute(
-                "INSERT INTO dealerships (name) VALUES (%s)",
-                (name,)
+                text("INSERT INTO dealerships (name) VALUES (:name)"),
+                {"name": name}
             )
             connection.commit()
         return True
@@ -257,14 +257,23 @@ def add_car_entry(conn, dealership_id, car_type, count, date_added, is_paid=Fals
     
     engine = conn._instance
     with engine.connect() as connection:
-        connection.execute('''
+        connection.execute(text('''
             INSERT INTO cars (dealership_id, car_type, count, price_per_car, total_amount, 
                              date_added, is_paid, payment_date, created_by, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ''', (
-            dealership_id, car_type, count, price_per_car, total_amount,
-            date_added, is_paid, payment_date, current_user, updated_by
-        ))
+            VALUES (:dealership_id, :car_type, :count, :price_per_car, :total_amount,
+                    :date_added, :is_paid, :payment_date, :created_by, :updated_by)
+        '''), {
+            "dealership_id": dealership_id,
+            "car_type": car_type,
+            "count": count,
+            "price_per_car": price_per_car,
+            "total_amount": total_amount,
+            "date_added": date_added,
+            "is_paid": is_paid,
+            "payment_date": payment_date,
+            "created_by": current_user,
+            "updated_by": updated_by
+        })
         connection.commit()
 
 def update_car_payment_status(conn, car_id, is_paid):
@@ -274,11 +283,16 @@ def update_car_payment_status(conn, car_id, is_paid):
     
     engine = conn._instance
     with engine.connect() as connection:
-        connection.execute('''
+        connection.execute(text('''
             UPDATE cars 
-            SET is_paid = %s, payment_date = %s, updated_by = %s
-            WHERE id = %s
-        ''', (is_paid, payment_date, current_user, car_id))
+            SET is_paid = :is_paid, payment_date = :payment_date, updated_by = :updated_by
+            WHERE id = :car_id
+        '''), {
+            "is_paid": is_paid,
+            "payment_date": payment_date,
+            "updated_by": current_user,
+            "car_id": car_id
+        })
         connection.commit()
 
 def get_car_payment_status_for_today(conn, car_id):
@@ -299,6 +313,31 @@ def get_car_payment_status_for_today(conn, car_id):
     # Проверяем, что оплата была сегодня
     payment_date = pd.to_datetime(row.payment_date).date()
     return payment_date == date.today()
+# Функции для очистки данных (только для руководителя)
+def clear_all_data_with_restore(conn):
+    """Очистка всех данных с восстановлением автосалонов"""
+    engine = conn._instance
+    with engine.connect() as connection:
+        connection.execute(text('DELETE FROM cars'))
+        connection.execute(text('DELETE FROM dealerships'))
+
+        # Восстанавливаем базовые автосалоны
+        for dealership in DEFAULT_DEALERSHIPS:
+            connection.execute(
+                text("INSERT INTO dealerships (name) VALUES (:name)"),
+                {"name": dealership}
+            )
+        connection.commit()
+
+
+def destroy_database_completely(conn):
+    """Полная очистка базы данных без восстановления"""
+    engine = conn._instance
+    with engine.connect() as connection:
+        connection.execute(text('DELETE FROM cars'))
+        connection.execute(text('DELETE FROM dealerships'))
+        connection.commit()
+
 
 def get_cars_by_month_dealership(conn, year, month, dealership_id=None):
     """Получение машин за месяц по автосалонам"""
