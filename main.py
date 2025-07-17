@@ -167,120 +167,178 @@ DEFAULT_DEALERSHIPS = [
 
 
 # Инициализация базы данных
+# @st.cache_resource
+# def init_database():
+#     conn = sqlite3.connect('carso_dealership.db', check_same_thread=False)
+#     cursor = conn.cursor()
+
+#     # Таблица автосалонов
+#     cursor.execute('''
+#                    CREATE TABLE IF NOT EXISTS dealerships
+#                    (
+#                        id
+#                        INTEGER
+#                        PRIMARY
+#                        KEY
+#                        AUTOINCREMENT,
+#                        name
+#                        TEXT
+#                        UNIQUE
+#                        NOT
+#                        NULL,
+#                        created_at
+#                        TIMESTAMP
+#                        DEFAULT
+#                        CURRENT_TIMESTAMP
+#                    )
+#                    ''')
+
+#     # Таблица машин
+#     cursor.execute('''
+#                    CREATE TABLE IF NOT EXISTS cars
+#                    (
+#                        id
+#                        INTEGER
+#                        PRIMARY
+#                        KEY
+#                        AUTOINCREMENT,
+#                        dealership_id
+#                        INTEGER,
+#                        car_type
+#                        TEXT
+#                        NOT
+#                        NULL,
+#                        count
+#                        INTEGER
+#                        NOT
+#                        NULL,
+#                        price_per_car
+#                        INTEGER
+#                        NOT
+#                        NULL,
+#                        total_amount
+#                        INTEGER
+#                        NOT
+#                        NULL,
+#                        date_added
+#                        DATE
+#                        NOT
+#                        NULL,
+#                        is_paid
+#                        BOOLEAN
+#                        DEFAULT
+#                        FALSE,
+#                        payment_date
+#                        DATE,
+#                        created_by
+#                        TEXT,
+#                        updated_by
+#                        TEXT,
+#                        created_at
+#                        TIMESTAMP
+#                        DEFAULT
+#                        CURRENT_TIMESTAMP,
+#                        FOREIGN
+#                        KEY
+#                    (
+#                        dealership_id
+#                    ) REFERENCES dealerships
+#                    (
+#                        id
+#                    )
+#                        )
+#                    ''')
+
+#     # Добавляем столбцы для отслеживания пользователей (для существующих БД)
+#     try:
+#         cursor.execute('ALTER TABLE cars ADD COLUMN payment_date DATE')
+#     except sqlite3.OperationalError:
+#         pass
+
+#     try:
+#         cursor.execute('ALTER TABLE cars ADD COLUMN created_by TEXT')
+#     except sqlite3.OperationalError:
+#         pass
+
+#     try:
+#         cursor.execute('ALTER TABLE cars ADD COLUMN updated_by TEXT')
+#     except sqlite3.OperationalError:
+#         pass
+
+#     # Добавляем базовые автосалоны если их нет
+#     for dealership in DEFAULT_DEALERSHIPS:
+#         cursor.execute('INSERT OR IGNORE INTO dealerships (name) VALUES (?)', (dealership,))
+
+#     conn.commit()
+
+#     # Проверяем количество автосалонов и добавляем недостающие
+#     cursor.execute('SELECT COUNT(*) FROM dealerships')
+#     existing_count = cursor.fetchone()[0]
+
+#     if existing_count < len(DEFAULT_DEALERSHIPS):
+#         st.info(
+#             f"Обновляем базу автосалонов... Добавлено {len(DEFAULT_DEALERSHIPS) - existing_count} новых автосалонов")
+
+#     return conn
+
 @st.cache_resource
 def init_database():
-    conn = sqlite3.connect('carso_dealership.db', check_same_thread=False)
-    cursor = conn.cursor()
-
-    # Таблица автосалонов
-    cursor.execute('''
-                   CREATE TABLE IF NOT EXISTS dealerships
-                   (
-                       id
-                       INTEGER
-                       PRIMARY
-                       KEY
-                       AUTOINCREMENT,
-                       name
-                       TEXT
-                       UNIQUE
-                       NOT
-                       NULL,
-                       created_at
-                       TIMESTAMP
-                       DEFAULT
-                       CURRENT_TIMESTAMP
-                   )
-                   ''')
-
-    # Таблица машин
-    cursor.execute('''
-                   CREATE TABLE IF NOT EXISTS cars
-                   (
-                       id
-                       INTEGER
-                       PRIMARY
-                       KEY
-                       AUTOINCREMENT,
-                       dealership_id
-                       INTEGER,
-                       car_type
-                       TEXT
-                       NOT
-                       NULL,
-                       count
-                       INTEGER
-                       NOT
-                       NULL,
-                       price_per_car
-                       INTEGER
-                       NOT
-                       NULL,
-                       total_amount
-                       INTEGER
-                       NOT
-                       NULL,
-                       date_added
-                       DATE
-                       NOT
-                       NULL,
-                       is_paid
-                       BOOLEAN
-                       DEFAULT
-                       FALSE,
-                       payment_date
-                       DATE,
-                       created_by
-                       TEXT,
-                       updated_by
-                       TEXT,
-                       created_at
-                       TIMESTAMP
-                       DEFAULT
-                       CURRENT_TIMESTAMP,
-                       FOREIGN
-                       KEY
-                   (
-                       dealership_id
-                   ) REFERENCES dealerships
-                   (
-                       id
-                   )
-                       )
-                   ''')
-
-    # Добавляем столбцы для отслеживания пользователей (для существующих БД)
+    # Строка подключения к PostgreSQL
+    DB_CONNECTION_STRING = "postgresql://postgres:Eldos2812@localhost:5432/carso_dealership"
+    
     try:
-        cursor.execute('ALTER TABLE cars ADD COLUMN payment_date DATE')
-    except sqlite3.OperationalError:
-        pass
+        # Подключение к PostgreSQL
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        conn.autocommit = True  # Включаем автокоммит для создания таблиц
+        cursor = conn.cursor()
 
-    try:
-        cursor.execute('ALTER TABLE cars ADD COLUMN created_by TEXT')
-    except sqlite3.OperationalError:
-        pass
+        # Создание таблицы автосалонов
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dealerships (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
-    try:
-        cursor.execute('ALTER TABLE cars ADD COLUMN updated_by TEXT')
-    except sqlite3.OperationalError:
-        pass
+        # Создание таблицы машин
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cars (
+                id SERIAL PRIMARY KEY,
+                dealership_id INTEGER NOT NULL,
+                car_type TEXT NOT NULL,
+                count INTEGER NOT NULL,
+                price_per_car INTEGER NOT NULL,
+                total_amount INTEGER NOT NULL,
+                date_added DATE NOT NULL,
+                is_paid BOOLEAN DEFAULT FALSE,
+                payment_date DATE,
+                created_by TEXT,
+                updated_by TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (dealership_id) REFERENCES dealerships(id) ON DELETE CASCADE
+            )
+        ''')
 
-    # Добавляем базовые автосалоны если их нет
-    for dealership in DEFAULT_DEALERSHIPS:
-        cursor.execute('INSERT OR IGNORE INTO dealerships (name) VALUES (?)', (dealership,))
+        # Добавление базовых автосалонов
+        for dealership in DEFAULT_DEALERSHIPS:
+            cursor.execute(
+                sql.SQL('INSERT INTO dealerships (name) VALUES (%s) ON CONFLICT (name) DO NOTHING'),
+                (dealership,)
+            )
 
-    conn.commit()
+        # Проверка количества автосалонов
+        cursor.execute('SELECT COUNT(*) FROM dealerships')
+        existing_count = cursor.fetchone()[0]
 
-    # Проверяем количество автосалонов и добавляем недостающие
-    cursor.execute('SELECT COUNT(*) FROM dealerships')
-    existing_count = cursor.fetchone()[0]
+        if existing_count < len(DEFAULT_DEALERSHIPS):
+            st.info(f"Обновляем базу автосалонов... Добавлено {len(DEFAULT_DEALERSHIPS) - existing_count} новых автосалонов")
 
-    if existing_count < len(DEFAULT_DEALERSHIPS):
-        st.info(
-            f"Обновляем базу автосалонов... Добавлено {len(DEFAULT_DEALERSHIPS) - existing_count} новых автосалонов")
-
-    return conn
-
+        return conn
+   
+    except psycopg2.Error as e:
+            st.error(f"Ошибка подключения к PostgreSQL: {str(e)}")
+            raise
 
 # Функции для работы с БД
 def get_dealerships(conn):
