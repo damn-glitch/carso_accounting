@@ -339,7 +339,7 @@ def show_all_users():
 
 def get_all_cars():
     global ACCESS_TOKEN
-    url = "http://localhost:9080/cars"
+    url = "http://localhost:9080/cars" # Поменять когда запустим на проде
 
     resp = requests.get(url, headers={
         "Authorization": f"Bearer {ACCESS_TOKEN}",

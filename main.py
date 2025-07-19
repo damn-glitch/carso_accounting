@@ -3,34 +3,31 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 import calendar
 import io
-import sqlite3
 import json
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from sqlalchemy import text  # ВАЖНО: Добавляем импорт text
 
 # Настройка страницы
 st.set_page_config(page_title="Учетная система автосалона", layout="wide")
 
 # Система авторизации
 VALID_USERS = {
-    "manager1": "carso1111",
-    "manager2": "carso1111",
-    "manager3": "carso1111",
-    "manager4": "carso1111",
+    "manager1": "auto1111",
+    "manager2": "auto1111",
+    "manager3": "auto1111",
+    "manager4": "auto1111",
     "leader": "alisher_krutoy"
 }
-
 
 def check_login(username, password):
     """Проверка логина и пароля"""
     return username in VALID_USERS and VALID_USERS[username] == password
 
-
 def is_leader(username):
     """Проверка, является ли пользователь руководителем"""
     return username == "leader"
-
 
 def get_user_role(username):
     """Получение роли пользователя"""
@@ -39,20 +36,18 @@ def get_user_role(username):
     else:
         return "👤 Менеджер"
 
-
 def login_form():
     """Форма входа в систему"""
     # Стилизованный заголовок
     st.markdown("""
     <div style="text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin-bottom: 30px;">
-        <h1 style="color: white; margin: 0;">🚗 CARSO.KZ</h1>
+        <h1 style="color: white; margin: 0;">🚗 AutoTrade</h1>
         <h2 style="color: white; margin: 10px 0;">Учетная система автосалона</h2>
         <p style="color: #e0e0e0; margin: 0;">Система управления автомобильными продажами</p>
         <hr style="border-color: rgba(255,255,255,0.3); margin: 20px 0;">
         <p style="margin: 0; color: white; font-size: 16px;">
-            💻 Сделал <strong>Алишер Бейсембеков</strong>, ген. директор и учредитель Carso<br>
-            🎯 По концепции <strong>Санжар Тургали</strong>, региональный директор Carso<br>
-            <small style="opacity: 0.8;">© 2025 CARSO.KZ - Система управления автосалоном</small>
+            💻 Сделал <strong>Алишер Бейсембеков</strong>, основатель и разработчик<br>
+            <small style="opacity: 0.8;">© 2025 AutoTrade - Система управления автосалоном</small>
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -92,13 +87,11 @@ def login_form():
             </div>
             """, unsafe_allow_html=True)
 
-
 def logout():
     """Выход из системы"""
     st.session_state.authenticated = False
     st.session_state.current_user = None
     st.rerun()
-
 
 # Проверка авторизации
 if 'authenticated' not in st.session_state:
@@ -166,295 +159,230 @@ DEFAULT_DEALERSHIPS = [
 ]
 
 
-# Инициализация базы данных
-# @st.cache_resource
-# def init_database():
-#     conn = sqlite3.connect('carso_dealership.db', check_same_thread=False)
-#     cursor = conn.cursor()
-
-#     # Таблица автосалонов
-#     cursor.execute('''
-#                    CREATE TABLE IF NOT EXISTS dealerships
-#                    (
-#                        id
-#                        INTEGER
-#                        PRIMARY
-#                        KEY
-#                        AUTOINCREMENT,
-#                        name
-#                        TEXT
-#                        UNIQUE
-#                        NOT
-#                        NULL,
-#                        created_at
-#                        TIMESTAMP
-#                        DEFAULT
-#                        CURRENT_TIMESTAMP
-#                    )
-#                    ''')
-
-#     # Таблица машин
-#     cursor.execute('''
-#                    CREATE TABLE IF NOT EXISTS cars
-#                    (
-#                        id
-#                        INTEGER
-#                        PRIMARY
-#                        KEY
-#                        AUTOINCREMENT,
-#                        dealership_id
-#                        INTEGER,
-#                        car_type
-#                        TEXT
-#                        NOT
-#                        NULL,
-#                        count
-#                        INTEGER
-#                        NOT
-#                        NULL,
-#                        price_per_car
-#                        INTEGER
-#                        NOT
-#                        NULL,
-#                        total_amount
-#                        INTEGER
-#                        NOT
-#                        NULL,
-#                        date_added
-#                        DATE
-#                        NOT
-#                        NULL,
-#                        is_paid
-#                        BOOLEAN
-#                        DEFAULT
-#                        FALSE,
-#                        payment_date
-#                        DATE,
-#                        created_by
-#                        TEXT,
-#                        updated_by
-#                        TEXT,
-#                        created_at
-#                        TIMESTAMP
-#                        DEFAULT
-#                        CURRENT_TIMESTAMP,
-#                        FOREIGN
-#                        KEY
-#                    (
-#                        dealership_id
-#                    ) REFERENCES dealerships
-#                    (
-#                        id
-#                    )
-#                        )
-#                    ''')
-
-#     # Добавляем столбцы для отслеживания пользователей (для существующих БД)
-#     try:
-#         cursor.execute('ALTER TABLE cars ADD COLUMN payment_date DATE')
-#     except sqlite3.OperationalError:
-#         pass
-
-#     try:
-#         cursor.execute('ALTER TABLE cars ADD COLUMN created_by TEXT')
-#     except sqlite3.OperationalError:
-#         pass
-
-#     try:
-#         cursor.execute('ALTER TABLE cars ADD COLUMN updated_by TEXT')
-#     except sqlite3.OperationalError:
-#         pass
-
-#     # Добавляем базовые автосалоны если их нет
-#     for dealership in DEFAULT_DEALERSHIPS:
-#         cursor.execute('INSERT OR IGNORE INTO dealerships (name) VALUES (?)', (dealership,))
-
-#     conn.commit()
-
-#     # Проверяем количество автосалонов и добавляем недостающие
-#     cursor.execute('SELECT COUNT(*) FROM dealerships')
-#     existing_count = cursor.fetchone()[0]
-
-#     if existing_count < len(DEFAULT_DEALERSHIPS):
-#         st.info(
-#             f"Обновляем базу автосалонов... Добавлено {len(DEFAULT_DEALERSHIPS) - existing_count} новых автосалонов")
-
-#     return conn
-
 @st.cache_resource
 def init_database():
-    # Строка подключения к PostgreSQL
-    DB_CONNECTION_STRING = "postgresql://postgres:Eldos2812@localhost:5432/carso_dealership"
-    
+    """Инициализация PostgreSQL базы данных"""
     try:
-        # Подключение к PostgreSQL
-        conn = psycopg2.connect(DB_CONNECTION_STRING)
-        conn.autocommit = True  # Включаем автокоммит для создания таблиц
-        cursor = conn.cursor()
-
-        # Создание таблицы автосалонов
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS dealerships (
-                id SERIAL PRIMARY KEY,
-                name TEXT UNIQUE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Создание таблицы машин
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS cars (
-                id SERIAL PRIMARY KEY,
-                dealership_id INTEGER NOT NULL,
-                car_type TEXT NOT NULL,
-                count INTEGER NOT NULL,
-                price_per_car INTEGER NOT NULL,
-                total_amount INTEGER NOT NULL,
-                date_added DATE NOT NULL,
-                is_paid BOOLEAN DEFAULT FALSE,
-                payment_date DATE,
-                created_by TEXT,
-                updated_by TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (dealership_id) REFERENCES dealerships(id) ON DELETE CASCADE
-            )
-        ''')
-
-        # Добавление базовых автосалонов
-        for dealership in DEFAULT_DEALERSHIPS:
-            cursor.execute(
-                sql.SQL('INSERT INTO dealerships (name) VALUES (%s) ON CONFLICT (name) DO NOTHING'),
-                (dealership,)
-            )
-
-        # Проверка количества автосалонов
-        cursor.execute('SELECT COUNT(*) FROM dealerships')
-        existing_count = cursor.fetchone()[0]
-
-        if existing_count < len(DEFAULT_DEALERSHIPS):
-            st.info(f"Обновляем базу автосалонов... Добавлено {len(DEFAULT_DEALERSHIPS) - existing_count} новых автосалонов")
-
+        # Создаем подключение к PostgreSQL
+        conn = st.connection("postgresql", type="sql")
+        
+        # Для DDL операций используем прямое подключение к движку
+        engine = conn._instance
+        
+        # Создание таблиц
+        with engine.connect() as connection:
+            # ВАЖНО: Используем text() для SQL запросов
+            connection.execute(text('''
+                CREATE TABLE IF NOT EXISTS dealerships (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            '''))
+            
+            connection.execute(text('''
+                CREATE TABLE IF NOT EXISTS cars (
+                    id SERIAL PRIMARY KEY,
+                    dealership_id INTEGER REFERENCES dealerships(id),
+                    car_type VARCHAR(100) NOT NULL,
+                    count INTEGER NOT NULL,
+                    price_per_car INTEGER NOT NULL,
+                    total_amount INTEGER NOT NULL,
+                    date_added DATE NOT NULL,
+                    is_paid BOOLEAN DEFAULT FALSE,
+                    payment_date DATE,
+                    created_by VARCHAR(100),
+                    updated_by VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            '''))
+            
+            connection.commit()
+        
+        # Добавляем базовые автосалоны если их нет
+        try:
+            existing_dealerships = conn.query("SELECT name FROM dealerships", ttl=0)
+            existing_names = existing_dealerships['name'].tolist() if not existing_dealerships.empty else []
+        except:
+            existing_names = []
+        
+        # Добавляем отсутствующие автосалоны
+        with engine.connect() as connection:
+            for dealership in DEFAULT_DEALERSHIPS:
+                if dealership not in existing_names:
+                    connection.execute(
+                        text("INSERT INTO dealerships (name) VALUES (:name) ON CONFLICT (name) DO NOTHING"),
+                        {"name": dealership}
+                    )
+            connection.commit()
+        
         return conn
-   
-    except psycopg2.Error as e:
-            st.error(f"Ошибка подключения к PostgreSQL: {str(e)}")
-            raise
+        
+    except Exception as e:
+        st.error(f"Ошибка подключения к базе данных: {e}")
+        st.info("Проверьте настройки PostgreSQL в secrets")
+        st.stop()
+
+
 
 # Функции для работы с БД
 def get_dealerships(conn):
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, name FROM dealerships ORDER BY name')
-    return cursor.fetchall()
-
+    """Получение списка автосалонов"""
+    result = conn.query("SELECT id, name FROM dealerships ORDER BY name", ttl=0)
+    return [(row.id, row.name) for _, row in result.iterrows()]
 
 def add_dealership(conn, name):
-    cursor = conn.cursor()
+    """Добавление нового автосалона"""
     try:
-        cursor.execute('INSERT INTO dealerships (name) VALUES (?)', (name,))
-        conn.commit()
+        engine = conn._instance
+        with engine.connect() as connection:
+            connection.execute(
+                text("INSERT INTO dealerships (name) VALUES (:name)"),
+                {"name": name}
+            )
+            connection.commit()
         return True
-    except sqlite3.IntegrityError:
+    except Exception:
         return False
-
 
 def can_add_cars_for_dealership(conn, dealership_id, target_date):
     """Все автосалоны могут добавлять машины без предоплаты"""
     return True
 
-
 def add_car_entry(conn, dealership_id, car_type, count, date_added, is_paid=False):
-    cursor = conn.cursor()
+    """Добавление записи о машинах"""
     price_per_car = CAR_TYPES[car_type]
     total_amount = price_per_car * count
     current_user = st.session_state.get('current_user', 'unknown')
-
+    
     # Если машины отмечены как оплаченные при добавлении, ставим дату оплаты
     payment_date = date.today() if is_paid else None
     updated_by = current_user if is_paid else None
-
-    cursor.execute('''
-                   INSERT INTO cars (dealership_id, car_type, count, price_per_car, total_amount, date_added, is_paid,
-                                     payment_date, created_by, updated_by)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ''', (dealership_id, car_type, count, price_per_car, total_amount, date_added, is_paid, payment_date,
-                         current_user, updated_by))
-    conn.commit()
-
+    
+    engine = conn._instance
+    with engine.connect() as connection:
+        connection.execute(text('''
+            INSERT INTO cars (dealership_id, car_type, count, price_per_car, total_amount, 
+                             date_added, is_paid, payment_date, created_by, updated_by)
+            VALUES (:dealership_id, :car_type, :count, :price_per_car, :total_amount,
+                    :date_added, :is_paid, :payment_date, :created_by, :updated_by)
+        '''), {
+            "dealership_id": dealership_id,
+            "car_type": car_type,
+            "count": count,
+            "price_per_car": price_per_car,
+            "total_amount": total_amount,
+            "date_added": date_added,
+            "is_paid": is_paid,
+            "payment_date": payment_date,
+            "created_by": current_user,
+            "updated_by": updated_by
+        })
+        connection.commit()
 
 def update_car_payment_status(conn, car_id, is_paid):
-    cursor = conn.cursor()
+    """Обновление статуса оплаты"""
     current_user = st.session_state.get('current_user', 'unknown')
-    # Обновляем статус оплаты с текущей датой и пользователем
-    cursor.execute('''
-                   UPDATE cars
-                   SET is_paid      = ?,
-                       payment_date = ?,
-                       updated_by   = ?
-                   WHERE id = ?
-                   ''', (is_paid, date.today() if is_paid else None, current_user, car_id))
-    conn.commit()
-
+    payment_date = date.today() if is_paid else None
+    
+    engine = conn._instance
+    with engine.connect() as connection:
+        connection.execute(text('''
+            UPDATE cars 
+            SET is_paid = :is_paid, payment_date = :payment_date, updated_by = :updated_by
+            WHERE id = :car_id
+        '''), {
+            "is_paid": is_paid,
+            "payment_date": payment_date,
+            "updated_by": current_user,
+            "car_id": car_id
+        })
+        connection.commit()
 
 def get_car_payment_status_for_today(conn, car_id):
     """Проверяет статус оплаты машины на сегодня"""
-    cursor = conn.cursor()
-    cursor.execute('''
-                   SELECT is_paid, payment_date
-                   FROM cars
-                   WHERE id = ?
-                   ''', (car_id,))
-
-    result = cursor.fetchone()
-    if not result:
+    result = conn.query('''
+        SELECT is_paid, payment_date
+        FROM cars
+        WHERE id = :car_id
+    ''', params={"car_id": car_id}, ttl=0)
+    
+    if result.empty:
         return False
-
-    is_paid, payment_date = result
-    if not is_paid or not payment_date:
+    
+    row = result.iloc[0]
+    if not row.is_paid or pd.isna(row.payment_date):
         return False
-
+    
     # Проверяем, что оплата была сегодня
-    payment_date = datetime.strptime(payment_date, '%Y-%m-%d').date()
+    payment_date = pd.to_datetime(row.payment_date).date()
     return payment_date == date.today()
 
-
 def get_cars_by_month_dealership(conn, year, month, dealership_id=None):
-    cursor = conn.cursor()
+    """Получение машин за месяц по автосалонам"""
     query = '''
-            SELECT c.*, d.name as dealership_name
-            FROM cars c
-                     JOIN dealerships d ON c.dealership_id = d.id
-            WHERE strftime('%Y', c.date_added) = ? \
-              AND strftime('%m', c.date_added) = ? \
-            '''
-    params = [str(year), f"{month:02d}"]
-
+        SELECT c.*, d.name as dealership_name
+        FROM cars c
+        JOIN dealerships d ON c.dealership_id = d.id
+        WHERE EXTRACT(year FROM c.date_added) = :year 
+        AND EXTRACT(month FROM c.date_added) = :month
+    '''
+    params = {"year": year, "month": month}
+    
     if dealership_id:
-        query += ' AND c.dealership_id = ?'
-        params.append(dealership_id)
-
+        query += ' AND c.dealership_id = :dealership_id'
+        params["dealership_id"] = dealership_id
+    
     query += ' ORDER BY d.name, c.date_added'
-    cursor.execute(query, params)
-    return cursor.fetchall()
-
+    
+    result = conn.query(query, params=params, ttl=0)
+    return [tuple(row) for _, row in result.iterrows()]
 
 def get_monthly_summary(conn, year, month):
-    cursor = conn.cursor()
-    cursor.execute('''
-                   SELECT d.name                                           as dealership_name,
-                          c.car_type,
-                          SUM(c.count)                                     as total_count,
-                          SUM(c.total_amount)                              as total_amount,
-                          SUM(CASE WHEN c.is_paid THEN c.count ELSE 0 END) as paid_count,
-                          COUNT(CASE WHEN c.is_paid THEN 1 END)            as paid_entries
-                   FROM cars c
-                            JOIN dealerships d ON c.dealership_id = d.id
-                   WHERE strftime('%Y', c.date_added) = ?
-                     AND strftime('%m', c.date_added) = ?
-                   GROUP BY d.id, d.name, c.car_type
-                   ORDER BY d.name, c.car_type
-                   ''', (str(year), f"{month:02d}"))
-    return cursor.fetchall()
+    """Получение сводки за месяц"""
+    result = conn.query('''
+        SELECT d.name as dealership_name,
+               c.car_type,
+               SUM(c.count) as total_count,
+               SUM(c.total_amount) as total_amount,
+               SUM(CASE WHEN c.is_paid THEN c.count ELSE 0 END) as paid_count,
+               COUNT(CASE WHEN c.is_paid THEN 1 END) as paid_entries
+        FROM cars c
+        JOIN dealerships d ON c.dealership_id = d.id
+        WHERE EXTRACT(year FROM c.date_added) = :year
+        AND EXTRACT(month FROM c.date_added) = :month
+        GROUP BY d.id, d.name, c.car_type
+        ORDER BY d.name, c.car_type
+    ''', params={"year": year, "month": month}, ttl=0)
+    
+    return [tuple(row) for _, row in result.iterrows()]
 
+def get_cars_by_day(conn, year, month, dealership_name, car_type):
+    """Получение машин по дням месяца"""
+    result = conn.query('''
+        SELECT EXTRACT(day FROM c.date_added) as day,
+               SUM(c.count) as total_count
+        FROM cars c
+        JOIN dealerships d ON c.dealership_id = d.id
+        WHERE EXTRACT(year FROM c.date_added) = :year
+        AND EXTRACT(month FROM c.date_added) = :month
+        AND d.name = :dealership_name
+        AND c.car_type = :car_type
+        GROUP BY EXTRACT(day FROM c.date_added)
+    ''', params={
+        "year": year, 
+        "month": month, 
+        "dealership_name": dealership_name, 
+        "car_type": car_type
+    }, ttl=0)
+    
+    result_dict = {}
+    for _, row in result.iterrows():
+        day = int(row.day)
+        count = row.total_count
+        result_dict[day] = count
+    
+    return result_dict
 
 # Функция создания улучшенного Excel отчета
 def create_excel_report(conn, year, month):
@@ -479,7 +407,7 @@ def create_excel_report(conn, year, month):
     ws['C2'].fill = paid_fill
 
     # Заголовок таблицы
-    ws['M3'] = "ТАБЛИЦА ОТЧЕТА CARSO.KZ"
+    ws['M3'] = "ТАБЛИЦА ОТЧЕТА AutoTrade"
     ws['M3'].font = header_font
     ws['M3'].fill = header_fill
     ws['M3'].alignment = center_alignment
@@ -573,8 +501,7 @@ def create_excel_report(conn, year, month):
             if paid_count == total_count and total_count > 0:
                 ws[f'{paid_col}{current_row}'].fill = paid_fill
             elif paid_count > 0:
-                ws[f'{paid_col}{current_row}'].fill = PatternFill(start_color="FFFF99", end_color="FFFF99",
-                                                                  fill_type="solid")
+                ws[f'{paid_col}{current_row}'].fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
 
             current_row += 1
 
@@ -596,33 +523,6 @@ def create_excel_report(conn, year, month):
 
     return wb
 
-
-def get_cars_by_day(conn, year, month, dealership_name, car_type):
-    cursor = conn.cursor()
-    cursor.execute('''
-                   SELECT strftime('%d', c.date_added) as day,
-            SUM(c.count) as total_count
-                   FROM cars c
-                       JOIN dealerships d
-                   ON c.dealership_id = d.id
-                   WHERE strftime('%Y'
-                       , c.date_added) = ?
-                     AND strftime('%m'
-                       , c.date_added) = ?
-                     AND d.name = ?
-                     AND c.car_type = ?
-                   GROUP BY strftime('%d', c.date_added)
-                   ''', (str(year), f"{month:02d}", dealership_name, car_type))
-
-    result = {}
-    for row in cursor.fetchall():
-        day = int(row[0])
-        count = row[1]
-        result[day] = count
-
-    return result
-
-
 # Инициализация БД
 conn = init_database()
 
@@ -642,7 +542,7 @@ if 'view_mode' not in st.session_state:
 header_col1, header_col2, header_col3 = st.columns([2, 2, 1])
 
 with header_col1:
-    st.title("🚗 Учетная система автосалона CARSO.KZ")
+    st.title("🚗 Учетная система автосалона AutoTrade")
 
 with header_col2:
     current_user = st.session_state.get('current_user', 'Неизвестно')
@@ -698,24 +598,24 @@ with st.sidebar:
         st.header("📊 Административная панель")
 
         # Общая статистика системы
-        cursor = conn.cursor()
-        cursor.execute('SELECT SUM(count), SUM(total_amount) FROM cars')
-        total_stats = cursor.fetchone()
-
-        if total_stats[0]:
+        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars', ttl=0)
+        
+        if not total_stats_result.empty and not pd.isna(total_stats_result.iloc[0, 0]):
+            total_cars = int(total_stats_result.iloc[0, 0])
+            total_amount = int(total_stats_result.iloc[0, 1])
+            
             col_a1, col_a2 = st.columns(2)
             with col_a1:
-                st.metric("Всего машин", int(total_stats[0]))
+                st.metric("Всего машин", total_cars)
             with col_a2:
-                total_amount = int(total_stats[1])
                 st.metric("Общий оборот", f"{total_amount:,} тг")
 
             # Статистика по оплатам
-            cursor.execute('SELECT SUM(count) FROM cars WHERE is_paid = 1')
-            paid_cars = cursor.fetchone()[0] or 0
+            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE', ttl=0)
+            paid_cars = int(paid_cars_result.iloc[0, 0]) if not paid_cars_result.empty and not pd.isna(paid_cars_result.iloc[0, 0]) else 0
 
-            if int(total_stats[0]) > 0:
-                payment_rate = (paid_cars / int(total_stats[0])) * 100
+            if total_cars > 0:
+                payment_rate = (paid_cars / total_cars) * 100
                 st.metric("Процент оплат", f"{payment_rate:.1f}%")
 
         st.divider()
@@ -723,25 +623,34 @@ with st.sidebar:
         # Детальная статистика по менеджерам
         st.header("👥 Активность менеджеров")
 
-        cursor.execute('''
-                       SELECT created_by,
-                              COUNT(*)                                     as entries_count,
-                              SUM(count)                                   as total_cars,
-                              SUM(total_amount)                            as total_amount,
-                              SUM(CASE WHEN is_paid THEN count ELSE 0 END) as paid_cars
-                       FROM cars
-                       WHERE created_by IS NOT NULL
-                         AND created_by != 'unknown'
-                       GROUP BY created_by
-                       ORDER BY SUM (count) DESC
-                       ''')
-        manager_detailed_stats = cursor.fetchall()
+        manager_stats_result = conn.query('''
+            SELECT created_by,
+                   COUNT(*) as entries_count,
+                   SUM(count) as total_cars,
+                   SUM(total_amount) as total_amount,
+                   SUM(CASE WHEN is_paid THEN count ELSE 0 END) as paid_cars
+            FROM cars
+            WHERE created_by IS NOT NULL
+            AND created_by != 'unknown'
+            GROUP BY created_by
+            ORDER BY SUM(count) DESC
+        ''', ttl=0)
 
-        if manager_detailed_stats:
-            for manager, entries, cars_count, total_amount, paid_cars in manager_detailed_stats:
+        if not manager_stats_result.empty:
+            for _, row in manager_stats_result.iterrows():
+                manager = row.created_by
+                entries = int(row.entries_count)
+                cars_count = int(row.total_cars)
+                total_amount = int(row.total_amount)
+                paid_cars = int(row.paid_cars)
+                
                 # Статистика по обработанным оплатам
-                cursor.execute('SELECT SUM(count) FROM cars WHERE updated_by = ? AND is_paid = 1', (manager,))
-                processed_payments = cursor.fetchone()[0] or 0
+                processed_result = conn.query(
+                    'SELECT SUM(count) FROM cars WHERE updated_by = :manager AND is_paid = TRUE',
+                    params={"manager": manager},
+                    ttl=0
+                )
+                processed_payments = int(processed_result.iloc[0, 0]) if not processed_result.empty and not pd.isna(processed_result.iloc[0, 0]) else 0
 
                 efficiency = (paid_cars / cars_count * 100) if cars_count > 0 else 0
 
@@ -749,9 +658,9 @@ with st.sidebar:
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
                         st.metric("Записей", entries)
-                        st.metric("Машин добавил", int(cars_count))
+                        st.metric("Машин добавил", cars_count)
                     with col_m2:
-                        st.metric("На сумму", f"{int(total_amount):,} тг")
+                        st.metric("На сумму", f"{total_amount:,} тг")
                         st.metric("Оплачено машин", f"{paid_cars}/{cars_count}")
                     with col_m3:
                         st.metric("Обработал оплат", processed_payments)
@@ -793,19 +702,27 @@ with st.sidebar:
         # Статистика по текущему менеджеру
         st.subheader("📈 Ваша статистика")
 
-        cursor = conn.cursor()
-        cursor.execute('SELECT SUM(count), SUM(total_amount) FROM cars WHERE created_by = ?', (current_user,))
-        user_stats = cursor.fetchone()
+        user_stats_result = conn.query(
+            'SELECT SUM(count), SUM(total_amount) FROM cars WHERE created_by = :user',
+            params={"user": current_user},
+            ttl=0
+        )
 
-        if user_stats[0]:
-            st.metric("Добавлено машин", int(user_stats[0]))
-            st.metric("На сумму", f"{int(user_stats[1]):,} тг")
+        if not user_stats_result.empty and not pd.isna(user_stats_result.iloc[0, 0]):
+            user_cars = int(user_stats_result.iloc[0, 0])
+            user_amount = int(user_stats_result.iloc[0, 1])
+            st.metric("Добавлено машин", user_cars)
+            st.metric("На сумму", f"{user_amount:,} тг")
         else:
             st.info("Вы еще не добавляли машины")
 
         # Статистика по оплатам
-        cursor.execute('SELECT SUM(count) FROM cars WHERE updated_by = ? AND is_paid = 1', (current_user,))
-        user_payments = cursor.fetchone()[0] or 0
+        user_payments_result = conn.query(
+            'SELECT SUM(count) FROM cars WHERE updated_by = :user AND is_paid = TRUE',
+            params={"user": current_user},
+            ttl=0
+        )
+        user_payments = int(user_payments_result.iloc[0, 0]) if not user_payments_result.empty and not pd.isna(user_payments_result.iloc[0, 0]) else 0
 
         if user_payments > 0:
             st.metric("Обработано оплат", f"{user_payments} машин")
@@ -858,7 +775,7 @@ with col1:
             # Группировка по дням
             day_groups = {}
             for car in cars_data:
-                car_date = car[6]  # date_added
+                car_date = str(car[6])  # date_added
                 if car_date not in day_groups:
                     day_groups[car_date] = []
                 day_groups[car_date].append(car)
@@ -1074,22 +991,20 @@ with col2:
         st.header("👑 Панель руководителя")
 
         # Расширенная аналитика для руководителя
-        cursor = conn.cursor()
-        cursor.execute('SELECT SUM(count), SUM(total_amount) FROM cars')
-        total_stats = cursor.fetchone()
+        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars', ttl=0)
 
-        if total_stats[0]:
+        if not total_stats_result.empty and not pd.isna(total_stats_result.iloc[0, 0]):
             # Основные KPI
             st.subheader("🎯 Ключевые показатели")
 
-            total_cars = int(total_stats[0])
-            total_revenue = int(total_stats[1])
+            total_cars = int(total_stats_result.iloc[0, 0])
+            total_revenue = int(total_stats_result.iloc[0, 1])
 
-            cursor.execute('SELECT SUM(count) FROM cars WHERE is_paid = 1')
-            paid_cars = cursor.fetchone()[0] or 0
+            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE', ttl=0)
+            paid_cars = int(paid_cars_result.iloc[0, 0]) if not paid_cars_result.empty and not pd.isna(paid_cars_result.iloc[0, 0]) else 0
 
-            cursor.execute('SELECT SUM(total_amount) FROM cars WHERE is_paid = 1')
-            paid_revenue = cursor.fetchone()[0] or 0
+            paid_revenue_result = conn.query('SELECT SUM(total_amount) FROM cars WHERE is_paid = TRUE', ttl=0)
+            paid_revenue = int(paid_revenue_result.iloc[0, 0]) if not paid_revenue_result.empty and not pd.isna(paid_revenue_result.iloc[0, 0]) else 0
 
             col_kpi1, col_kpi2 = st.columns(2)
             with col_kpi1:
@@ -1109,23 +1024,22 @@ with col2:
             # График динамики продаж
             st.subheader("📈 Динамика продаж")
 
-            cursor.execute('''
-                           SELECT date_added,
-                                  SUM(count)                                          as daily_cars,
-                                  SUM(total_amount)                                   as daily_revenue,
-                                  SUM(CASE WHEN is_paid THEN total_amount ELSE 0 END) as daily_paid
-                           FROM cars
-                           WHERE date_added >= date ('now', '-30 days')
-                           GROUP BY date_added
-                           ORDER BY date_added
-                           ''')
-            daily_data = cursor.fetchall()
+            daily_data_result = conn.query('''
+                SELECT date_added,
+                       SUM(count) as daily_cars,
+                       SUM(total_amount) as daily_revenue,
+                       SUM(CASE WHEN is_paid THEN total_amount ELSE 0 END) as daily_paid
+                FROM cars
+                WHERE date_added >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY date_added
+                ORDER BY date_added
+            ''', ttl=0)
 
-            if daily_data:
-                dates = [row[0] for row in daily_data]
-                cars_data = [row[1] for row in daily_data]
-                revenue_data = [row[2] for row in daily_data]
-                paid_data = [row[3] for row in daily_data]
+            if not daily_data_result.empty:
+                dates = daily_data_result['date_added'].tolist()
+                cars_data = daily_data_result['daily_cars'].tolist()
+                revenue_data = daily_data_result['daily_revenue'].tolist()
+                paid_data = daily_data_result['daily_paid'].tolist()
 
                 # График машин по дням
                 chart_data = pd.DataFrame({
@@ -1142,30 +1056,34 @@ with col2:
             # Аналитика по типам машин
             st.subheader("🚗 Популярность типов машин")
 
-            cursor.execute('''
-                           SELECT car_type,
-                                  SUM(count)                                   as total_count,
-                                  SUM(total_amount)                            as total_amount,
-                                  SUM(CASE WHEN is_paid THEN count ELSE 0 END) as paid_count
-                           FROM cars
-                           GROUP BY car_type
-                           ORDER BY SUM(count) DESC
-                           ''')
-            car_types_data = cursor.fetchall()
+            car_types_result = conn.query('''
+                SELECT car_type,
+                       SUM(count) as total_count,
+                       SUM(total_amount) as total_amount,
+                       SUM(CASE WHEN is_paid THEN count ELSE 0 END) as paid_count
+                FROM cars
+                GROUP BY car_type
+                ORDER BY SUM(count) DESC
+            ''', ttl=0)
 
-            if car_types_data:
+            if not car_types_result.empty:
                 # Создаем данные для графика
                 types_chart = pd.DataFrame({
-                    'Тип машины': [row[0] for row in car_types_data],
-                    'Продано': [row[1] for row in car_types_data],
-                    'Оплачено': [row[3] for row in car_types_data]
+                    'Тип машины': car_types_result['car_type'].tolist(),
+                    'Продано': car_types_result['total_count'].tolist(),
+                    'Оплачено': car_types_result['paid_count'].tolist()
                 })
 
                 st.bar_chart(types_chart.set_index('Тип машины'))
 
                 # Детальная таблица
-                for car_type, total_count, total_amount, paid_count in car_types_data:
+                for _, row in car_types_result.iterrows():
+                    car_type = row.car_type
+                    total_count = int(row.total_count)
+                    total_amount = int(row.total_amount)
+                    paid_count = int(row.paid_count)
                     conversion = (paid_count / total_count * 100) if total_count > 0 else 0
+                    
                     with st.expander(f"🚙 {car_type}: {total_count} шт.", expanded=False):
                         col_ct1, col_ct2, col_ct3 = st.columns(3)
                         with col_ct1:
@@ -1175,155 +1093,27 @@ with col2:
                         with col_ct3:
                             st.metric("Конверсия", f"{conversion:.1f}%")
 
-            st.divider()
-
-            # Рейтинг менеджеров по эффективности
-            st.subheader("🏆 Рейтинг эффективности")
-
-            cursor.execute('''
-                           SELECT created_by,
-                                  COUNT(*)                                            as entries_count,
-                                  SUM(count)                                          as total_cars,
-                                  SUM(total_amount)                                   as total_amount,
-                                  SUM(CASE WHEN is_paid THEN count ELSE 0 END)        as paid_cars,
-                                  SUM(CASE WHEN is_paid THEN total_amount ELSE 0 END) as paid_amount
-                           FROM cars
-                           WHERE created_by IS NOT NULL
-                             AND created_by != 'unknown'
-                           GROUP BY created_by
-                           ORDER BY SUM (CASE WHEN is_paid THEN total_amount ELSE 0 END) DESC
-                           ''')
-            managers_rating = cursor.fetchall()
-
-            if managers_rating:
-                for i, (manager, entries, cars_count, total_amount, paid_cars, paid_amount) in enumerate(
-                        managers_rating, 1):
-                    # Получаем статистику по обработанным оплатам
-                    cursor.execute('SELECT SUM(count) FROM cars WHERE updated_by = ? AND is_paid = 1', (manager,))
-                    processed_payments = cursor.fetchone()[0] or 0
-
-                    efficiency = (paid_cars / cars_count * 100) if cars_count > 0 else 0
-
-                    # Определяем медаль
-                    if i == 1:
-                        medal = "🥇"
-                    elif i == 2:
-                        medal = "🥈"
-                    elif i == 3:
-                        medal = "🥉"
-                    else:
-                        medal = f"{i}."
-
-                    with st.expander(f"{medal} {manager} - {paid_amount:,} тг получено", expanded=False):
-                        col_mr1, col_mr2, col_mr3 = st.columns(3)
-                        with col_mr1:
-                            st.metric("Добавил", f"{cars_count} машин")
-                            st.metric("Записей", entries)
-                        with col_mr2:
-                            st.metric("Обработал оплат", processed_payments)
-                            st.metric("Эффективность", f"{efficiency:.1f}%")
-                        with col_mr3:
-                            st.metric("Получил оплат", f"{paid_amount:,} тг")
-                            avg_per_car = paid_amount / paid_cars if paid_cars > 0 else 0
-                            st.metric("Средний чек", f"{avg_per_car:,.0f} тг")
-
-            st.divider()
-
-            # Прогноз и цели
-            st.subheader("🎯 Цели и прогнозы")
-
-            # Анализ текущего месяца
-            current_month = date.today().month
-            current_year = date.today().year
-
-            cursor.execute('''
-                           SELECT SUM(count)                                          as month_cars,
-                                  SUM(total_amount)                                   as month_revenue,
-                                  SUM(CASE WHEN is_paid THEN total_amount ELSE 0 END) as month_paid
-                           FROM cars
-                           WHERE strftime('%Y', date_added) = ?
-                             AND strftime('%m', date_added) = ?
-                           ''', (str(current_year), f"{current_month:02d}"))
-
-            month_stats = cursor.fetchone()
-
-            if month_stats and month_stats[0]:
-                month_cars, month_revenue, month_paid = month_stats
-
-                # Дни прошли в месяце
-                days_passed = date.today().day
-                days_in_current_month = calendar.monthrange(current_year, current_month)[1]
-                days_remaining = days_in_current_month - days_passed
-
-                # Прогноз на конец месяца
-                if days_passed > 0:
-                    daily_avg_revenue = month_revenue / days_passed
-                    projected_revenue = daily_avg_revenue * days_in_current_month
-
-                    col_pr1, col_pr2 = st.columns(2)
-                    with col_pr1:
-                        st.metric("📅 Дней осталось", days_remaining)
-                        st.metric("📊 Средний оборот/день", f"{daily_avg_revenue:,.0f} тг")
-                    with col_pr2:
-                        st.metric("🎯 Прогноз на месяц", f"{projected_revenue:,.0f} тг")
-                        month_progress = (days_passed / days_in_current_month) * 100
-                        st.metric("⏰ Прогресс месяца", f"{month_progress:.1f}%")
-
-                # Прогресс бар месяца
-                revenue_progress = (
-                            month_revenue / projected_revenue * 100) if 'projected_revenue' in locals() and projected_revenue > 0 else 0
-                st.progress(month_progress / 100, text=f"Выполнение месячного плана: {revenue_progress:.1f}%")
-
-            st.divider()
-
-            # Топ дни по продажам
-            st.subheader("🔥 Лучшие дни")
-
-            cursor.execute('''
-                           SELECT date_added,
-                                  SUM(count)        as daily_cars,
-                                  SUM(total_amount) as daily_revenue
-                           FROM cars
-                           WHERE date_added >= date ('now', '-60 days')
-                           GROUP BY date_added
-                           ORDER BY SUM (total_amount) DESC
-                               LIMIT 5
-                           ''')
-            top_days = cursor.fetchall()
-
-            if top_days:
-                for i, (day_date, cars, revenue) in enumerate(top_days, 1):
-                    day_name = datetime.strptime(day_date, '%Y-%m-%d').strftime('%d.%m.%Y (%A)')
-
-                    col_td1, col_td2 = st.columns([3, 1])
-                    with col_td1:
-                        st.write(f"**{i}. {day_name}**")
-                    with col_td2:
-                        st.write(f"**{revenue:,} тг** ({cars} машин)")
-
         else:
             st.info("📈 Аналитика появится после начала работы")
 
     else:
-        # Упрощенная панель для менеджеров (без активности команды)
+        # Упрощенная панель для менеджеров
         st.header("📊 Общая статистика")
 
-        cursor = conn.cursor()
-        cursor.execute('SELECT SUM(count), SUM(total_amount) FROM cars')
-        total_stats = cursor.fetchone()
+        total_stats_result = conn.query('SELECT SUM(count), SUM(total_amount) FROM cars', ttl=0)
 
-        if total_stats[0]:
-            st.metric("Всего машин в системе", int(total_stats[0]))
-            st.metric("Общая сумма", f"{int(total_stats[1]):,} тг")
+        if not total_stats_result.empty and not pd.isna(total_stats_result.iloc[0, 0]):
+            total_cars = int(total_stats_result.iloc[0, 0])
+            total_amount = int(total_stats_result.iloc[0, 1])
+            st.metric("Всего машин в системе", total_cars)
+            st.metric("Общая сумма", f"{total_amount:,} тг")
 
             # Статистика по оплатам
-            cursor.execute('SELECT SUM(count) FROM cars WHERE is_paid = 1')
-            paid_cars = cursor.fetchone()[0] or 0
+            paid_cars_result = conn.query('SELECT SUM(count) FROM cars WHERE is_paid = TRUE', ttl=0)
+            paid_cars = int(paid_cars_result.iloc[0, 0]) if not paid_cars_result.empty and not pd.isna(paid_cars_result.iloc[0, 0]) else 0
 
-            cursor.execute('SELECT SUM(total_amount) FROM cars WHERE is_paid = 1')
-            paid_amount = cursor.fetchone()[0] or 0
-
-            unpaid_cars = int(total_stats[0]) - paid_cars
+            paid_amount_result = conn.query('SELECT SUM(total_amount) FROM cars WHERE is_paid = TRUE', ttl=0)
+            paid_amount = int(paid_amount_result.iloc[0, 0]) if not paid_amount_result.empty and not pd.isna(paid_amount_result.iloc[0, 0]) else 0
 
             st.divider()
 
@@ -1335,26 +1125,24 @@ with col2:
             today_str = date.today().strftime('%Y-%m-%d')
 
             # Машины, оплаченные сегодня
-            cursor.execute('''
-                           SELECT SUM(count), SUM(total_amount)
-                           FROM cars
-                           WHERE payment_date = ?
-                             AND is_paid = 1
-                           ''', (today_str,))
-            today_paid_stats = cursor.fetchone()
-            today_paid_cars = today_paid_stats[0] or 0
-            today_paid_amount = today_paid_stats[1] or 0
+            today_paid_result = conn.query('''
+                SELECT SUM(count), SUM(total_amount)
+                FROM cars
+                WHERE payment_date = :today AND is_paid = TRUE
+            ''', params={"today": today_str}, ttl=0)
+            
+            today_paid_cars = int(today_paid_result.iloc[0, 0]) if not today_paid_result.empty and not pd.isna(today_paid_result.iloc[0, 0]) else 0
+            today_paid_amount = int(today_paid_result.iloc[0, 1]) if not today_paid_result.empty and not pd.isna(today_paid_result.iloc[0, 1]) else 0
 
             # Машины, добавленные сегодня но не оплаченные
-            cursor.execute('''
-                           SELECT SUM(count), SUM(total_amount)
-                           FROM cars
-                           WHERE date_added = ?
-                             AND is_paid = 0
-                           ''', (today_str,))
-            today_unpaid_stats = cursor.fetchone()
-            today_unpaid_cars = today_unpaid_stats[0] or 0
-            today_unpaid_amount = today_unpaid_stats[1] or 0
+            today_unpaid_result = conn.query('''
+                SELECT SUM(count), SUM(total_amount)
+                FROM cars
+                WHERE date_added = :today AND is_paid = FALSE
+            ''', params={"today": today_str}, ttl=0)
+            
+            today_unpaid_cars = int(today_unpaid_result.iloc[0, 0]) if not today_unpaid_result.empty and not pd.isna(today_unpaid_result.iloc[0, 0]) else 0
+            today_unpaid_amount = int(today_unpaid_result.iloc[0, 1]) if not today_unpaid_result.empty and not pd.isna(today_unpaid_result.iloc[0, 1]) else 0
 
             # Всего машин за сегодня
             today_total_cars = today_paid_cars + today_unpaid_cars
@@ -1365,7 +1153,7 @@ with col2:
 
                 with col_today1:
                     # Оплачено
-                    st.markdown("""
+                    st.markdown(f"""
                     <div style="background-color: #d4edda; padding: 10px; border-radius: 8px; margin-bottom: 10px;">
                         <div style="display: flex; align-items: center;">
                             <span style="color: #28a745; font-size: 20px; margin-right: 8px;">✅</span>
@@ -1381,12 +1169,11 @@ with col2:
                             </span>
                         </div>
                     </div>
-                    """.format(today_paid_cars=today_paid_cars, today_paid_amount=today_paid_amount),
-                                unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
 
                 with col_today2:
                     # Не оплачено
-                    st.markdown("""
+                    st.markdown(f"""
                     <div style="background-color: #f8d7da; padding: 10px; border-radius: 8px; margin-bottom: 10px;">
                         <div style="display: flex; align-items: center;">
                             <span style="color: #dc3545; font-size: 20px; margin-right: 8px;">❌</span>
@@ -1402,8 +1189,7 @@ with col2:
                             </span>
                         </div>
                     </div>
-                    """.format(today_unpaid_cars=today_unpaid_cars, today_unpaid_amount=today_unpaid_amount),
-                                unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
 
                 # Прогресс бар для сегодняшнего дня
                 today_payment_percentage = (today_paid_cars / today_total_cars * 100) if today_total_cars > 0 else 0
@@ -1412,41 +1198,10 @@ with col2:
             else:
                 st.info("📋 За сегодня машин не добавлялось")
 
-            st.divider()
-            st.subheader("🏢 Популярные автосалоны")
-
-            # Топ автосалонов (без детальной статистики)
-            cursor.execute('''
-                           SELECT d.name, SUM(c.count), SUM(c.total_amount)
-                           FROM cars c
-                                    JOIN dealerships d ON c.dealership_id = d.id
-                           GROUP BY d.id, d.name
-                           ORDER BY SUM(c.count) DESC LIMIT 5
-                           ''')
-            top_dealerships = cursor.fetchall()
-
-            for i, (name, total_cars, total_amount) in enumerate(top_dealerships, 1):
-                st.write(f"**{i}. {name}** - {total_cars} машин ({total_amount:,} тг)")
-
-            st.divider()
-            st.subheader("🚗 Популярные типы машин")
-
-            # Статистика по типам машин
-            cursor.execute('''
-                           SELECT car_type, SUM(count) as total_count
-                           FROM cars
-                           GROUP BY car_type
-                           ORDER BY SUM(count) DESC LIMIT 5
-                           ''')
-            popular_types = cursor.fetchall()
-
-            for i, (car_type, count) in enumerate(popular_types, 1):
-                st.write(f"**{i}. {car_type}** - {count} машин")
-
         else:
             st.info("📈 Статистика появится после добавления машин")
 
-# Футер с авторством - размещаем перед кнопкой очистки для лучшей видимости
+# Футер с авторством
 st.markdown("---")
 st.markdown("""
 <div style="
@@ -1458,9 +1213,8 @@ st.markdown("""
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 ">
     <p style="margin: 0; color: white; font-size: 16px;">
-        💻 Сделал <strong>Алишер Бейсембеков</strong>, ген. директор и учредитель Carso<br>
-        🎯 По концепции <strong>Санжар Тургали</strong>, региональный директор Carso<br>
-        <small style="opacity: 0.8;">© 2025 CARSO.KZ - Система управления автосалоном</small>
+        💻 Сделал <strong>Алишер Бейсембеков</strong>, основатель и разработчик<br>
+        <small style="opacity: 0.8;">© 2025 AutoTrade - Система управления автосалоном</small>
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -1473,15 +1227,19 @@ if is_leader(current_user):
     # Обычная очистка данных
     if st.button("🗑️ Очистить все данные", type="secondary", help="Очистка с восстановлением автосалонов"):
         if st.button("Подтвердить очистку всех данных", type="primary"):
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM cars')
-            cursor.execute('DELETE FROM dealerships')
+            engine = conn._instance
+            with engine.connect() as connection:
+                connection.execute(text('DELETE FROM cars'))
+                connection.execute(text('DELETE FROM dealerships'))
 
-            # Восстанавливаем базовые автосалоны
-            for dealership in DEFAULT_DEALERSHIPS:
-                cursor.execute('INSERT INTO dealerships (name) VALUES (?)', (dealership,))
+                # Восстанавливаем базовые автосалоны
+                for dealership in DEFAULT_DEALERSHIPS:
+                    connection.execute(
+                        text("INSERT INTO dealerships (name) VALUES (:name)"),
+                        {"name": dealership}
+                    )
+                connection.commit()
 
-            conn.commit()
             st.success("Все данные очищены!")
             st.rerun()
 
@@ -1505,10 +1263,11 @@ if is_leader(current_user):
     if st.button("💥 ПОЛНАЯ ОЧИСТКА БАЗЫ ДАННЫХ", type="primary", help="ВНИМАНИЕ: Полная очистка без восстановления!"):
         if destroy_password == "alisher_destroy":
             if st.button("🔥 ПОДТВЕРДИТЬ ПОЛНОЕ УНИЧТОЖЕНИЕ", type="primary"):
-                cursor = conn.cursor()
-                cursor.execute('DELETE FROM cars')
-                cursor.execute('DELETE FROM dealerships')
-                conn.commit()
+                engine = conn._instance
+                with engine.connect() as connection:
+                    connection.execute(text('DELETE FROM cars'))
+                    connection.execute(text('DELETE FROM dealerships'))
+                    connection.commit()
 
                 st.success("💀 База данных полностью очищена!")
                 st.warning("⚠️ Все автосалоны удалены! Потребуется ручное восстановление.")
