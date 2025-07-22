@@ -115,36 +115,116 @@ def fetch_new_token():
     """Запрашиваем новый access_token по client_credentials."""
     global ACCESS_TOKEN, ACCESS_EXPIRES
 
-    resp = requests.post(
-        KEYCLOAK_URL + "/realms/carso/protocol/openid-connect/token",
-        data={
-            "grant_type":    "client_credentials",
-            "client_id":     "carso_accounting",
-            "client_secret": "qROypNhSAL9qoefJrxqU2k7PKUwJhxzK",
-        }
-    )
-    resp.raise_for_status()
-    data = resp.json()
-
-    now = datetime.now(timezone.utc)
-    ACCESS_TOKEN   = data["access_token"]
-    expires_in     = data.get("expires_in", 3600)
-    ACCESS_EXPIRES = now + timedelta(seconds=expires_in)
-    print(f"[{now.isoformat()}] Новый токен действителен до {ACCESS_EXPIRES.isoformat()}")
+    try:
+        resp = requests.post(
+            KEYCLOAK_URL + "/realms/carso/protocol/openid-connect/token",
+            data={
+                "grant_type":    "client_credentials",
+                "client_id":     "carso_accounting",
+                "client_secret": "qROypNhSAL9qoefJrxqU2k7PKUwJhxzK",
+            }
+        )
+        
+        # Log the response for debugging
+        logger.info(f"Keycloak response status: {resp.status_code}")
+        
+        # Check if request was successful
+        if resp.status_code != 200:
+            logger.error(f"Keycloak error response: {resp.text}")
+            
+            # Try to parse error details
+            try:
+                error_data = resp.json()
+                error_msg = error_data.get('error_description', error_data.get('error', 'Unknown error'))
+                st.error(f"Ошибка авторизации Keycloak: {error_msg}")
+            except:
+                st.error(f"Ошибка авторизации Keycloak: HTTP {resp.status_code}")
+            
+            # Don't raise here, handle gracefully
+            return False
+        
+        data = resp.json()
+        
+        now = datetime.now(timezone.utc)
+        ACCESS_TOKEN   = data["access_token"]
+        expires_in     = data.get("expires_in", 3600)
+        ACCESS_EXPIRES = now + timedelta(seconds=expires_in)
+        logger.info(f"[{now.isoformat()}] Новый токен действителен до {ACCESS_EXPIRES.isoformat()}")
+        return True
+        
+    except requests.exceptions.ConnectionError:
+        logger.error("Не удается подключиться к Keycloak серверу")
+        st.error("Ошибка: Не удается подключиться к серверу аутентификации")
+        return False
+    except requests.exceptions.Timeout:
+        logger.error("Timeout при подключении к Keycloak")
+        st.error("Ошибка: Превышено время ожидания ответа от сервера")
+        return False
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при получении токена: {str(e)}")
+        st.error(f"Неожиданная ошибка: {str(e)}")
+        return False
 
 
 def token_checker_loop():
     """Фон: проверяем раз в минуту, и при необходимости обновляем."""
+    retry_count = 0
+    max_retries = 3
+    
     while True:
-        now = datetime.now(timezone.utc)
-        if ACCESS_TOKEN is None or (ACCESS_EXPIRES and now >= ACCESS_EXPIRES):
-            print(f"[{now.isoformat()}] Токен истёк — запрашиваем новый")
-            fetch_new_token()
+        try:
+            now = datetime.now(timezone.utc)
+            if ACCESS_TOKEN is None or (ACCESS_EXPIRES and now >= ACCESS_EXPIRES):
+                logger.info(f"[{now.isoformat()}] Токен истёк — запрашиваем новый")
+                
+                # Try to fetch with retries
+                success = False
+                for i in range(max_retries):
+                    if fetch_new_token():
+                        success = True
+                        retry_count = 0  # Reset retry count on success
+                        break
+                    else:
+                        logger.warning(f"Попытка {i+1}/{max_retries} не удалась")
+                        time.sleep(5 * (i + 1))  # Exponential backoff
+                
+                if not success:
+                    logger.error("Не удалось получить токен после всех попыток")
+                    retry_count += 1
+                    
+                    # If we've failed too many times, increase the wait time
+                    if retry_count > 5:
+                        logger.warning("Слишком много неудачных попыток, увеличиваем интервал проверки")
+                        time.sleep(300)  # Wait 5 minutes before trying again
+                        
+        except Exception as e:
+            logger.error(f"Ошибка в token_checker_loop: {str(e)}")
+            
         time.sleep(60)
 
 # стартуем
-fetch_new_token()
+# Initialize token with error handling
+def initialize_token():
+    """Инициализация токена с обработкой ошибок."""
+    try:
+        if not fetch_new_token():
+            st.warning("⚠️ Не удалось получить токен авторизации. Некоторые функции могут быть недоступны.")
+            # Set a dummy token to prevent further errors
+            global ACCESS_TOKEN, ACCESS_EXPIRES
+            ACCESS_TOKEN = None
+            ACCESS_EXPIRES = datetime.now(timezone.utc) + timedelta(hours=1)
+    except Exception as e:
+        logger.error(f"Критическая ошибка при инициализации токена: {str(e)}")
+        st.warning("⚠️ Проблема с системой авторизации. Работа в ограниченном режиме.")
+        # Set dummy values
+        ACCESS_TOKEN = None
+        ACCESS_EXPIRES = datetime.now(timezone.utc) + timedelta(hours=1)
+
+
+# Replace the initialization code with:
+initialize_token()
 threading.Thread(target=token_checker_loop, daemon=True).start()
+
 
 # def start_token_scheduler():
 #     """Запускает фоновый тред единожды."""
@@ -205,6 +285,12 @@ def add_user():
 # Function to create a new user in Keycloak
 def create_user(data):
     global ACCESS_TOKEN
+    
+    # Check if we have a valid token
+    if not ACCESS_TOKEN:
+        logger.error("No access token available")
+        return False, {"error": "Система авторизации недоступна"}
+    
     url = KEYCLOAK_URL +"/admin/realms/carso/users"
     try:
         response = requests.post(
@@ -236,40 +322,68 @@ def create_user(data):
         if response.status_code == 201:
             return True, None
         else:
-            error_message = response.json()
+            error_message = response.json() if response.text else {"error": f"HTTP {response.status_code}"}
             return False, error_message
 
     except requests.exceptions.RequestException as e:
-        return False, {"error": "An error occurred", "message": str(e)}
+        logger.error(f"Request error in create_user: {str(e)}")
+        return False, {"error": "Ошибка сети", "message": str(e)}
+
 
 
 def get_all_users():
     global ACCESS_TOKEN
-    url = KEYCLOAK_URL + "/admin/realms/carso/users"  # Adjust URL based on your Keycloak setup
+    
+    # Check if we have a valid token
+    if not ACCESS_TOKEN:
+        logger.warning("No access token available for get_all_users")
+        return []
+    
+    url = KEYCLOAK_URL + "/admin/realms/carso/users"
 
-    resp = requests.get(url, headers={
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    })
-    resp.raise_for_status()
-    raw = resp.json()  # List[dict]
-    return [
-        User(
-            id=u.get("id"),
-            username=u.get("username"),
-            first_name=u.get("firstName"),
-            last_name=u.get("lastName"),
-            email=u.get("email"),
-            enabled=u.get("enabled", False),
-            attributes=u.get("attributes", {}),
-        )
-        for u in raw
-    ]
+    try:
+        resp = requests.get(url, headers={
+            "Authorization": f"Bearer {ACCESS_TOKEN}",
+            "Content-Type": "application/json"
+        })
+        
+        if resp.status_code == 401:
+            # Token might be expired, try to refresh
+            logger.info("Got 401, attempting to refresh token")
+            if fetch_new_token():
+                # Retry with new token
+                resp = requests.get(url, headers={
+                    "Authorization": f"Bearer {ACCESS_TOKEN}",
+                    "Content-Type": "application/json"
+                })
+            else:
+                logger.error("Failed to refresh token")
+                return []
+        
+        resp.raise_for_status()
+        raw = resp.json()  # List[dict]
+        
+        return [
+            User(
+                id=u.get("id"),
+                username=u.get("username"),
+                first_name=u.get("firstName"),
+                last_name=u.get("lastName"),
+                email=u.get("email"),
+                enabled=u.get("enabled", False),
+                attributes=u.get("attributes", {}),
+            )
+            for u in raw
+        ]
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching users: {str(e)}")
+        return []
+
 
 def show_all_users():
     users = get_all_users()  # -> List[User]
     if not users:
-        st.info("Пользователи не найдены.")
+        st.info("Пользователи не найдены или система авторизации недоступна.")
         return
 
     # Собираем мапу full_name -> User
@@ -288,7 +402,7 @@ def show_all_users():
     selected_user = st.selectbox(
         "Выберите пользователя",
         full_names,
-        index=full_names.index(st.session_state.selected_user),
+        index=full_names.index(st.session_state.selected_user) if st.session_state.selected_user in full_names else 0,
         key="selected_user"    # <-- здесь key == имя переменной в session_state
     )
 
@@ -304,7 +418,11 @@ def show_all_users():
 
     # 4) Отображаем подробности, если флаг поднят
     if st.session_state.show_details:
-        u = name_map[selected_user]
+        u = name_map.get(selected_user)
+        if not u:
+            st.error("Пользователь не найден")
+            return
+            
         st.markdown(f"### {u.full_name}")
         st.write("• **ID**:",      u.id)
         st.write("• **Username**:", u.username)
@@ -315,41 +433,92 @@ def show_all_users():
             st.json(u.attributes)
 
         def delete_selected_user():
-            url = KEYCLOAK_URL + "/admin/realms/carso/users/{u.id}"
-            resp = requests.put(
-                url,
-                headers={
-                    "Authorization": f"Bearer {ACCESS_TOKEN}",
-                    "Content-Type": "application/json"
-                },
-                json={"enabled": False}
-            )
-            resp.raise_for_status()
-            st.success(f"Пользователь «{u.full_name}» удалён (enabled=False).")
-            # сброс флагов и выбор первого пользователя
-            st.session_state.show_details = False
-            st.session_state.selected_user = full_names[0]
+            global ACCESS_TOKEN
+            
+            if not ACCESS_TOKEN:
+                st.error("Система авторизации недоступна")
+                return
+                
+            url = KEYCLOAK_URL + f"/admin/realms/carso/users/{u.id}"
+            try:
+                resp = requests.put(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {ACCESS_TOKEN}",
+                        "Content-Type": "application/json"
+                    },
+                    json={"enabled": False}
+                )
+                
+                if resp.status_code == 401:
+                    # Try to refresh token
+                    if fetch_new_token():
+                        resp = requests.put(
+                            url,
+                            headers={
+                                "Authorization": f"Bearer {ACCESS_TOKEN}",
+                                "Content-Type": "application/json"
+                            },
+                            json={"enabled": False}
+                        )
+                    else:
+                        st.error("Не удалось обновить токен авторизации")
+                        return
+                
+                resp.raise_for_status()
+                st.success(f"Пользователь «{u.full_name}» удалён (enabled=False).")
+                # сброс флагов и выбор первого пользователя
+                st.session_state.show_details = False
+                st.session_state.selected_user = full_names[0] if full_names else None
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error deleting user: {str(e)}")
+                st.error(f"Ошибка при удалении пользователя: {str(e)}")
 
         st.button(
             "Удалить пользователя",
             on_click=delete_selected_user
         )
-
-
 def get_all_cars():
     global ACCESS_TOKEN
-    url = "https://api.guarantee.carso.kz/cars" # Поменять когда запустим на проде
+    
+    # Check if we have a valid token
+    if not ACCESS_TOKEN:
+        logger.warning("No access token available for get_all_cars")
+        return []
+    
+    url = "https://api.guarantee.carso.kz/cars"
 
-    resp = requests.get(url, headers={
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    })
-    resp.raise_for_status()
-    raw = resp.json()  # List[dict]
-    # Parse the response into a list of CarResponseDTO objects
-    cars = [parse_car_response(car_data) for car_data in raw]
-
-    return cars
+    try:
+        resp = requests.get(url, headers={
+            "Authorization": f"Bearer {ACCESS_TOKEN}",
+            "Content-Type": "application/json"
+        })
+        
+        if resp.status_code == 401:
+            # Token might be expired, try to refresh
+            logger.info("Got 401, attempting to refresh token")
+            if fetch_new_token():
+                # Retry with new token
+                resp = requests.get(url, headers={
+                    "Authorization": f"Bearer {ACCESS_TOKEN}",
+                    "Content-Type": "application/json"
+                })
+            else:
+                logger.error("Failed to refresh token")
+                return []
+        
+        resp.raise_for_status()
+        raw = resp.json()  # List[dict]
+        
+        # Parse the response into a list of CarResponseDTO objects
+        cars = [parse_car_response(car_data) for car_data in raw]
+        return cars
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching cars: {str(e)}")
+        st.error(f"Ошибка при получении списка автомобилей: {str(e)}")
+        return []
 
 # Streamlit code to create the button and display the cars
 def show_all_cars():
