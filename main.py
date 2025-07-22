@@ -120,8 +120,8 @@ def fetch_new_token():
             KEYCLOAK_URL + "/realms/carso/protocol/openid-connect/token",
             data={
                 "grant_type":    "client_credentials",
-                "client_id":     "carso_accounting",
-                "client_secret": "qROypNhSAL9qoefJrxqU2k7PKUwJhxzK",
+                "client_id":     "carso-accounting",
+                "client_secret": "Zbm5qvs5nngt1EfZ5HQ37CHoF4Zv1A7t",
             }
         )
         
