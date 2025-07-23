@@ -664,65 +664,59 @@ DEFAULT_DEALERSHIPS = [
 # Инициализация базы данных PostgreSQL
 @st.cache_resource(hash_funcs={psycopg2.extensions.connection: id})
 def init_database():
-    load_dotenv()
-    DB_CONNECTION_STRING = os.getenv("DB_CONNECTION_STRING")
-    if not DB_CONNECTION_STRING:
-        st.error("Строка подключения к базе данных не найдена в .env файле!")
-        raise ValueError("DB_CONNECTION_STRING is not set")
+    # 1️⃣ читаем сначала secrets → потом .env → падаем с подсказкой
+    DB_URL = (
+        st.secrets.get("postgres", {}).get("url") or
+        os.getenv("DB_CONNECTION_STRING")
+    )
+    if not DB_URL:
+        st.error("⛔️ Не задан DSN Postgres. Добавь его в Secrets или .env")
+        st.stop()
 
+    # 2️⃣ пытаемся коннектиться c таймаутом и SSL (важно для облака)
     try:
-        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        conn = psycopg2.connect(DB_URL, connect_timeout=5)  # sslmode указывается прямо в URL
         conn.autocommit = True
-        cursor = conn.cursor()
+    except psycopg2.OperationalError as e:
+        st.error(
+            "💣 Не могу подключиться к Postgres. "
+            "Проверь хост, порт, логин/пароль, а главное — доступен ли сервер снаружи."
+        )
+        st.text(str(e))  # для локального режима покажет подробности
+        st.stop()
 
-        # Создание таблицы автосалонов
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS dealerships (
-                id SERIAL PRIMARY KEY,
-                name TEXT UNIQUE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+    # 3️⃣ миграции / создание схем
+    with conn.cursor() as cur:
+        cur.execute("""
+          CREATE TABLE IF NOT EXISTS dealerships (
+              id SERIAL PRIMARY KEY,
+              name TEXT UNIQUE NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+        """)
+        cur.execute("""
+          CREATE TABLE IF NOT EXISTS cars (
+              id SERIAL PRIMARY KEY,
+              dealership_id INTEGER NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
+              car_type TEXT NOT NULL,
+              count INTEGER NOT NULL,
+              price_per_car INTEGER NOT NULL,
+              total_amount INTEGER NOT NULL,
+              date_added DATE NOT NULL,
+              is_paid BOOLEAN DEFAULT FALSE,
+              payment_date DATE,
+              created_by TEXT,
+              updated_by TEXT,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+        """)
+        # базовые автосалоны
+        cur.executemany(
+            'INSERT INTO dealerships (name) VALUES (%s) ON CONFLICT DO NOTHING',
+            [(d,) for d in DEFAULT_DEALERSHIPS]
+        )
 
-        # Создание таблицы машин
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS cars (
-                id SERIAL PRIMARY KEY,
-                dealership_id INTEGER NOT NULL,
-                car_type TEXT NOT NULL,
-                count INTEGER NOT NULL,
-                price_per_car INTEGER NOT NULL,
-                total_amount INTEGER NOT NULL,
-                date_added DATE NOT NULL,
-                is_paid BOOLEAN DEFAULT FALSE,
-                payment_date DATE,
-                created_by TEXT,
-                updated_by TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (dealership_id) REFERENCES dealerships(id) ON DELETE CASCADE
-            )
-        ''')
-
-        # Добавление базовых автосалонов
-        for dealership in DEFAULT_DEALERSHIPS:
-            cursor.execute(
-                sql.SQL('INSERT INTO dealerships (name) VALUES (%s) ON CONFLICT (name) DO NOTHING'),
-                (dealership,)
-            )
-
-        cursor.execute('SELECT COUNT(*) FROM dealerships')
-        existing_count = cursor.fetchone()[0]
-        if existing_count < len(DEFAULT_DEALERSHIPS):
-            st.info(f"Обновляем базу автосалонов... Добавлено {len(DEFAULT_DEALERSHIPS) - existing_count} новых автосалонов")
-
-        cursor.close()
-        logger.info("Successfully connected to PostgreSQL")
-        return conn
-
-    except psycopg2.Error as e:
-        logger.error(f"Database connection error: {str(e)}")
-        st.error(f"Ошибка подключения к PostgreSQL: {str(e)}")
-        raise
+    return conn
 
 # Функции для работы с БД
 def get_dealerships(conn):
