@@ -661,12 +661,14 @@ DEFAULT_DEALERSHIPS = [
     "ZENITH AUTO & DETAILING", "REGIONAUTOKZ"
 ]
 
+
+load_dotenv()
 # Инициализация базы данных PostgreSQL
 @st.cache_resource(hash_funcs={psycopg2.extensions.connection: id})
 def init_database():
     # 1️⃣ читаем сначала secrets → потом .env → падаем с подсказкой
     DB_URL = (
-        st.secrets.get("postgres", {}).get("url") or
+        # st.secrets.get("postgres", {}).get("url") or
         os.getenv("DB_CONNECTION_STRING")
     )
     if not DB_URL:
@@ -675,7 +677,16 @@ def init_database():
 
     # 2️⃣ пытаемся коннектиться c таймаутом и SSL (важно для облака)
     try:
-        conn = psycopg2.connect(DB_URL, connect_timeout=5)  # sslmode указывается прямо в URL
+        conn = psycopg2.connect(
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT"),
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASS"),
+            sslmode="disable",
+            connect_timeout=5
+        )
+  # sslmode указывается прямо в URL
         conn.autocommit = True
     except psycopg2.OperationalError as e:
         st.error(
